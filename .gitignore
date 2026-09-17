@@ -1,0 +1,14 @@
+# Audio files
+*.wav
+*.mp3
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Environments (if you ever move venv here)
+venv/
+env/
+
+# macOS
+.DS_Store
