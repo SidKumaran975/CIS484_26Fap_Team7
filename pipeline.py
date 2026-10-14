@@ -23,10 +23,10 @@ import time
 # ────────────────────────────────────────────────────────────────
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Python interpreters. Override either value when using isolated environments:
-#   MAIN_PYTHON=/path/to/python WAV2LIP_PYTHON=/path/to/python python pipeline.py
+# Python interpreters. Each stage can use an isolated environment.
 VENV_MAIN = os.environ.get("MAIN_PYTHON", sys.executable)
 VENV_WAV2LIP = os.environ.get("WAV2LIP_PYTHON", sys.executable)
+VENV_STT = os.environ.get("STT_PYTHON", VENV_MAIN)
 
 # Stage 1 — Text-to-Speech
 TTS_SCRIPT = os.path.join(ROOT_DIR, "text-to-speech-model", "run_voice.py")
@@ -44,8 +44,8 @@ LIPSYNC_OUTFILE = os.path.join(WAV2LIP_CWD, "results", "result_voice.mp4")
 # Stage 3 — Speech-to-Text
 STT_SCRIPT = os.path.join(ROOT_DIR, "speech-to-text", "app.py")
 STT_CWD = os.path.join(ROOT_DIR, "speech-to-text")
-STT_HOST = "127.0.0.1"
-STT_PORT = "8000"
+STT_HOST = os.environ.get("STT_HOST", "127.0.0.1")
+STT_PORT = os.environ.get("STT_PORT", "8000")
 
 # ────────────────────────────────────────────────────────────────
 # LOGGING
@@ -117,6 +117,7 @@ def preflight() -> None:
     for label, path in [
         ("Main venv Python", VENV_MAIN),
         ("Wav2Lip venv Python", VENV_WAV2LIP),
+        ("Speech-to-text venv Python", VENV_STT),
         ("TTS script", TTS_SCRIPT),
         ("Wav2Lip script", WAV2LIP_SCRIPT),
         ("Wav2Lip checkpoint", CHECKPOINT),
@@ -186,11 +187,10 @@ def stage_3_stt() -> None:
     try:
         subprocess.run(
             [
-                VENV_MAIN, "-m", "uvicorn",
+                VENV_STT, "-m", "uvicorn",
                 "app:app",
                 "--host", STT_HOST,
                 "--port", STT_PORT,
-                "--reload",
             ],
             cwd=STT_CWD,
             check=True,

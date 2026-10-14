@@ -1,0 +1,21 @@
+[Unit]
+Description=CIS484 AI Assessment Pipeline
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=capstone
+Group=capstone
+WorkingDirectory=/opt/capstone
+EnvironmentFile=/etc/capstone/capstone.env
+Environment=HOME=/home/capstone
+ExecStart=/opt/capstone/.venv-tts/bin/python /opt/capstone/pipeline.py
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=900
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

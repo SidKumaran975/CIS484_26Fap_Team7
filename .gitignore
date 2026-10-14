@@ -13,6 +13,7 @@ __pycache__/
 
 # Environments (if you ever move venv here)
 .venv/
+.venv-*/
 venv/
 env/
 

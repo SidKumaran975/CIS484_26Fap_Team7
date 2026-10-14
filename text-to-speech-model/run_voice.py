@@ -1,5 +1,4 @@
 import os
-import subprocess
 import sys
 import ollama
 from TTS.api import TTS
@@ -26,13 +25,16 @@ torch.load = _patched_torch_load
 # -------------------------------------------------------------
 # Direct path to your reference voice sample (same directory as this script)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-REFERENCE_AUDIO_PATH = os.path.join(SCRIPT_DIR, "Sid.wav")
+REFERENCE_AUDIO_PATH = os.environ.get(
+    "REFERENCE_AUDIO_PATH",
+    os.path.join(SCRIPT_DIR, "Sid.wav"),
+)
 
 # Temporary audio file destination for playback
 OUTPUT_AUDIO_PATH = "output_response.wav"
 
 # Local Ollama model name
-MODEL_NAME = "llama3"
+MODEL_NAME = os.environ.get("OLLAMA_MODEL", "llama3")
 
 
 def main():
@@ -68,7 +70,9 @@ def main():
     # 3. LOAD XTTS MODEL
     # Loads the XTTS v2 model into memory (will download weights on the first run)
     print("\nLoading XTTS v2 model...")
-    tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using {device.upper()} for speech synthesis.")
+    tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
 
     # 4. SYNTHESIZE SPEECH
     # Clones the vocal characteristics from Sid.wav and generates the speech file

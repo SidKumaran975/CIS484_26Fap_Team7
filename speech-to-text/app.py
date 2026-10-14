@@ -5,23 +5,25 @@ from faster_whisper import WhisperModel
 from pathlib import Path
 from datetime import datetime, timezone
 import json
+import os
 import uuid
 
 app = FastAPI()
 
 # ── Paths ──────────────────────────────────────────────────────
 # The pipeline copies the generated video here before launch.
-VIDEO_PATH = Path(__file__).parent / "avatar_question.mp4"
+APP_DIR = Path(__file__).resolve().parent
+VIDEO_PATH = APP_DIR / "avatar_question.mp4"
 
 # Directory for saved recordings and transcripts.
-DATA = Path("recordings")
-DATA.mkdir(exist_ok=True)
+DATA = Path(os.environ.get("RECORDINGS_DIR", APP_DIR / "recordings"))
+DATA.mkdir(parents=True, exist_ok=True)
 
 # ── Load Whisper model at startup ──────────────────────────────
 model = WhisperModel(
-    "base.en",
-    device="cpu",
-    compute_type="int8"
+    os.environ.get("WHISPER_MODEL", "base.en"),
+    device=os.environ.get("WHISPER_DEVICE", "cpu"),
+    compute_type=os.environ.get("WHISPER_COMPUTE_TYPE", "int8"),
 )
 
 
@@ -30,7 +32,13 @@ model = WhisperModel(
 @app.get("/")
 def home():
     """Serve the main assessment page."""
-    return FileResponse("index.html")
+    return FileResponse(APP_DIR / "index.html")
+
+
+@app.get("/health")
+def health():
+    """Health check used by the service manager and reverse proxy."""
+    return {"status": "ok"}
 
 
 @app.get("/video")

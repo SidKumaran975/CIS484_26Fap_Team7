@@ -46,3 +46,10 @@ python pipeline.py
 
 The web application is served at `http://127.0.0.1:8000` after audio and avatar
 generation complete.
+
+## Hartman 2011 Ubuntu server
+
+The production-ready server configuration is maintained on the
+`codex/ubuntu-server-deployment` branch so the existing `main` version remains
+unchanged. Server installation, GPU configuration, Nginx, HTTPS, and systemd
+instructions are in [`deployment/README.md`](deployment/README.md).
