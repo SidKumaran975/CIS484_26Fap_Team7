@@ -1,0 +1,206 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Capstone Oral Assessment</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem;
+        }
+        h1 {
+            font-size: 1.75rem;
+            margin-bottom: 1.5rem;
+            color: #38bdf8;
+        }
+        /* ── Video Area ── */
+        #video-container {
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 24px rgba(0,0,0,.4);
+        }
+        video {
+            display: block;
+            width: 100%;
+            max-width: 480px;
+            background: #000;
+        }
+        /* ── Controls ── */
+        #controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        button {
+            padding: .7rem 1.4rem;
+            font-size: 1rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: opacity .2s, transform .1s;
+        }
+        button:disabled {
+            opacity: .35;
+            cursor: not-allowed;
+        }
+        button:active:not(:disabled) { transform: scale(.96); }
+        #play-btn   { background: #6366f1; color: #fff; }
+        #start-btn  { background: #22c55e; color: #fff; }
+        #stop-btn   { background: #ef4444; color: #fff; }
+        /* ── Status & Transcript ── */
+        #status {
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            padding: .6rem 1rem;
+            background: #1e293b;
+            border-radius: 8px;
+            text-align: center;
+            min-width: 300px;
+        }
+        #transcript-box {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 1.25rem;
+            max-width: 560px;
+            width: 100%;
+        }
+        #transcript-box h2 {
+            font-size: 1.1rem;
+            color: #38bdf8;
+            margin-bottom: .5rem;
+        }
+        #transcript {
+            line-height: 1.6;
+            min-height: 2rem;
+            color: #cbd5e1;
+        }
+        .recording { animation: pulse 1s infinite; }
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,.5); }
+            50%      { box-shadow: 0 0 0 10px rgba(239,68,68,0); }
+        }
+    </style>
+</head>
+<body>
+    <h1>🎓 Capstone Oral Assessment</h1>
+
+    <!-- Avatar Video Player — no text overlay, just the deepfake -->
+    <div id="video-container">
+        <video id="avatar-video" preload="auto">
+            <source src="/video" type="video/mp4">
+        </video>
+    </div>
+
+    <!-- Controls -->
+    <div id="controls">
+        <button id="play-btn">▶ Play Question</button>
+        <button id="start-btn" disabled>🎙 Record Answer</button>
+        <button id="stop-btn" disabled>⏹ Stop Recording</button>
+    </div>
+
+    <div id="status">Press <b>Play Question</b> to begin.</div>
+
+    <div id="transcript-box">
+        <h2>Your Transcript</h2>
+        <p id="transcript">—</p>
+    </div>
+
+    <script>
+        const video      = document.getElementById("avatar-video");
+        const playBtn    = document.getElementById("play-btn");
+        const startBtn   = document.getElementById("start-btn");
+        const stopBtn    = document.getElementById("stop-btn");
+        const statusEl   = document.getElementById("status");
+        const transcript = document.getElementById("transcript");
+
+        let recorder, stream, chunks = [];
+
+        // ── Step 1: Play the avatar video ──
+        playBtn.onclick = () => {
+            video.currentTime = 0;
+            video.play();
+            playBtn.disabled = true;
+            statusEl.textContent = "Playing question…";
+        };
+
+        video.onended = () => {
+            statusEl.textContent = "Question finished. Record your answer when ready.";
+            startBtn.disabled = false;
+            playBtn.disabled  = false;
+        };
+
+        // ── Step 2: Record the student's spoken answer ──
+        startBtn.onclick = async () => {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                chunks = [];
+
+                recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+
+                recorder.ondataavailable = e => {
+                    if (e.data.size > 0) chunks.push(e.data);
+                };
+
+                recorder.onstop = async () => {
+                    stream.getTracks().forEach(t => t.stop());
+                    statusEl.textContent = "Transcribing…";
+                    statusEl.classList.remove("recording");
+
+                    const blob = new Blob(chunks, { type: "audio/webm" });
+                    const form = new FormData();
+                    form.append("audio", blob, "answer.webm");
+
+                    try {
+                        const res = await fetch("/transcribe", {
+                            method: "POST",
+                            body: form,
+                        });
+                        if (!res.ok) {
+                            const errText = await res.text();
+                            throw new Error("Server error: " + errText);
+                        }
+                        const result = await res.json();
+                        transcript.textContent = result.text || "(no speech detected)";
+                        statusEl.textContent = "✔ Transcription complete.";
+                    } catch (err) {
+                        console.error("Transcription error:", err);
+                        statusEl.textContent = "Error: " + err.message;
+                        transcript.textContent = "Transcription failed. Is the server running?";
+                    }
+
+                    startBtn.disabled = false;
+                };
+
+                recorder.start();
+                startBtn.disabled = true;
+                stopBtn.disabled  = false;
+                statusEl.textContent = "🔴 Recording…";
+                statusEl.classList.add("recording");
+
+            } catch (err) {
+                statusEl.textContent = "Microphone error: " + err.message;
+            }
+        };
+
+        // ── Step 3: Stop recording ──
+        stopBtn.onclick = () => {
+            stopBtn.disabled = true;
+            recorder.stop();
+        };
+    </script>
+</body>
+</html>

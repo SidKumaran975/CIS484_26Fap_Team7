@@ -1,6 +1,10 @@
 import json
 import re
+from pathlib import Path
+
 from docx import Document
+
+
 def load_from_docx(file_path):
     """Loads all paragraph text from a Word document."""
     doc = Document(file_path)
@@ -36,7 +40,7 @@ def parse_questions_to_dict(raw_text):
 
     return questions_dict
 
-doc_path = "/Users/sid/Downloads/CIS484Capstone/capstone /Question List.docx"
+doc_path = Path(__file__).resolve().parent / "Question List.docx"
 raw_doc_text = load_from_docx(doc_path)
 questions_dictionary = parse_questions_to_dict(raw_doc_text)
 

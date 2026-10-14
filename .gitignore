@@ -2,13 +2,40 @@
 *.wav
 *.mp3
 
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
 # Python caches
 __pycache__/
 *.py[cod]
 
 # Environments (if you ever move venv here)
+.venv/
 venv/
 env/
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Generated recordings, transcripts, and video
+speech-to-text/recordings/
+speech-to-text/avatar_question.mp4
+Wav2Lip/results/*
+!Wav2Lip/results/README.md
+Wav2Lip/temp/*
+!Wav2Lip/temp/README.md
+
+# Downloaded model weights
+Wav2Lip/checkpoints/*.pth
+Wav2Lip/face_detection/detection/sfd/*.pth
+
+# Editor metadata
+.vscode/
+.idea/
 
 # macOS
 .DS_Store
