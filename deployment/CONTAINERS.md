@@ -22,12 +22,11 @@ assets are intentionally not stored in GitHub and must be copied into the same
 paths before starting:
 
 ```text
+BabAvatar.png
 text-to-speech-model/Sid.wav
 Wav2Lip/checkpoints/wav2lip.pth
 Wav2Lip/face_detection/detection/sfd/s3fd.pth
 ```
-
-`BabAvatar.png` is tracked in Git and is included in the application image.
 
 ## 2. Configure and build
 
@@ -105,7 +104,7 @@ docker compose build app
 docker save -o capstone-app.tar capstone-app:latest
 ```
 
-Copy `capstone-app.tar`, this repository's `compose.yaml`, `.env`, and the three
+Copy `capstone-app.tar`, this repository's `compose.yaml`, `.env`, and the four
 private model assets to the Ubuntu laptop. On the laptop:
 
 ```bash

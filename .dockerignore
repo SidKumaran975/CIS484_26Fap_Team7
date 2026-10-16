@@ -19,3 +19,4 @@ Wav2Lip/checkpoints/*.pth
 Wav2Lip/face_detection/detection/sfd/*.pth
 *.wav
 *.mp3
+BabAvatar.png

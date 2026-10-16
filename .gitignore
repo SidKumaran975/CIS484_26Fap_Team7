@@ -2,6 +2,9 @@
 *.wav
 *.mp3
 
+# Private examiner likeness
+BabAvatar.png
+
 # Secrets and local configuration
 .env
 .env.*

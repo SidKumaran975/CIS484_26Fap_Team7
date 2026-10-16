@@ -61,6 +61,12 @@ services:
         bind:
           create_host_path: false
       - type: bind
+        source: ./BabAvatar.png
+        target: /app/BabAvatar.png
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
         source: ./Wav2Lip/checkpoints/wav2lip.pth
         target: /app/Wav2Lip/checkpoints/wav2lip.pth
         read_only: true

@@ -37,7 +37,8 @@ Wav2Lip/face_detection/detection/sfd/s3fd.pth
 
 The text-to-speech stage also expects a local reference recording at
 `text-to-speech-model/Sid.wav`. Do not commit recordings that contain private
-voice or assessment data.
+voice or assessment data. The private examiner image `BabAvatar.png` must also
+be supplied locally and must not be committed.
 
 ## Running locally on macOS
 
