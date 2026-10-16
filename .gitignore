@@ -25,6 +25,7 @@ htmlcov/
 # Generated recordings, transcripts, and video
 speech-to-text/recordings/
 speech-to-text/avatar_question.mp4
+runtime/
 Wav2Lip/results/*
 !Wav2Lip/results/README.md
 Wav2Lip/temp/*
@@ -37,6 +38,14 @@ Wav2Lip/face_detection/detection/sfd/*.pth
 # Editor metadata
 .vscode/
 .idea/
+
+# Professor course files stay outside source control by default
+course-materials/*
+!course-materials/README.md
+!course-materials/assessment.yaml
+!course-materials/materials/
+course-materials/materials/*
+!course-materials/materials/demo-course-notes.md
 
 # macOS
 .DS_Store

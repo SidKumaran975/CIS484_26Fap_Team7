@@ -17,6 +17,7 @@ check_file "${REPO_DIR}/Wav2Lip/checkpoints/wav2lip.pth"
 check_file "${REPO_DIR}/Wav2Lip/face_detection/detection/sfd/s3fd.pth"
 check_file "${REPO_DIR}/text-to-speech-model/Sid.wav"
 check_file "${REPO_DIR}/BabAvatar.png"
+check_file "${REPO_DIR}/course-materials/assessment.yaml"
 
 for environment in tts wav2lip stt; do
     check_file "${REPO_DIR}/.venv-${environment}/bin/python"
@@ -43,5 +44,12 @@ fi
     'import torch; print("Wav2Lip CUDA:", torch.cuda.is_available())'
 "${REPO_DIR}/.venv-stt/bin/python" -c \
     'import ctranslate2; print("CTranslate2 CUDA devices:", ctranslate2.get_cuda_device_count())'
+
+if command -v ollama >/dev/null 2>&1; then
+    ollama list
+else
+    echo "MISSING: Ollama" >&2
+    failed=1
+fi
 
 exit "${failed}"

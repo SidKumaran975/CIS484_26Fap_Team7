@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Course Material Administration</title>
+    <style>
+        body { max-width: 1040px; margin: 3rem auto; padding: 0 1rem; font-family: system-ui; background: #0f172a; color: #e2e8f0; }
+        .card { background: #1e293b; border-radius: 12px; padding: 1.25rem; margin: 1rem 0; }
+        input, button { padding: .7rem; border-radius: 8px; font-size: 1rem; }
+        input { width: 100%; margin: .5rem 0 1rem; }
+        button { border: 0; background: #38bdf8; color: #082f49; font-weight: 700; cursor: pointer; }
+        button:disabled { opacity: .5; cursor: wait; }
+        code { color: #7dd3fc; }
+        a { color: #38bdf8; }
+        .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: .75rem; margin: 1rem 0; }
+        .metric { background: #111827; border-radius: 9px; padding: .8rem; }
+        .metric strong { display: block; color: #7dd3fc; font-size: 1.25rem; }
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+        th, td { padding: .65rem; border-bottom: 1px solid #334155; text-align: left; white-space: nowrap; }
+        th { color: #7dd3fc; }
+        .muted { color: #94a3b8; }
+    </style>
+</head>
+<body>
+    <h1>Course Material Administration</h1>
+    <div class="card">
+        <p>Place the professor's files in <code>COURSE_CONTENT_DIR</code>, then publish them to rebuild the local vector index. Publish only when no assessment session is active.</p>
+        <label for="token">Administrator token</label>
+        <input id="token" type="password" autocomplete="current-password" placeholder="Leave blank when ADMIN_TOKEN is not configured">
+        <button id="publish">Publish course materials</button>
+        <p id="status">Checking course status…</p>
+    </div>
+    <div class="card">
+        <h2>System analytics</h2>
+        <p class="muted">Local operational metrics only. Student response text is not copied into this analytics database.</p>
+        <button id="refresh-analytics">Refresh analytics</button>
+        <p id="analytics-status">Loading analytics…</p>
+        <div class="metrics">
+            <div class="metric"><span>Total runs</span><strong id="run-count">—</strong></div>
+            <div class="metric"><span>Success rate</span><strong id="success-rate">—</strong></div>
+            <div class="metric"><span>Average latency</span><strong id="average-latency">—</strong></div>
+            <div class="metric"><span>Input tokens</span><strong id="input-tokens">—</strong></div>
+            <div class="metric"><span>Output tokens</span><strong id="output-tokens">—</strong></div>
+            <div class="metric"><span>Estimated energy</span><strong id="energy">—</strong></div>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Started</th><th>Type</th><th>Result</th><th>Latency</th><th>CPU</th><th>Tokens in/out</th><th>Est. Wh</th><th>Stages</th></tr></thead>
+                <tbody id="runs"></tbody>
+            </table>
+        </div>
+        <p id="electricity-note" class="muted"></p>
+    </div>
+    <p><a href="/">Return to assessment</a></p>
+<script>
+    const statusEl = document.getElementById("status");
+    const publishBtn = document.getElementById("publish");
+    const tokenEl = document.getElementById("token");
+    const refreshAnalyticsBtn = document.getElementById("refresh-analytics");
+    const analyticsStatusEl = document.getElementById("analytics-status");
+
+    function adminHeaders() {
+        return { "X-Admin-Token": tokenEl.value };
+    }
+
+    async function showStatus() {
+        const response = await fetch("/api/course/status");
+        const data = await response.json();
+        statusEl.textContent = data.ready
+            ? `Ready: ${data.document_count} documents, ${data.chunk_count} passages. Indexed ${data.indexed_at}.`
+            : data.message;
+    }
+
+    publishBtn.onclick = async () => {
+        publishBtn.disabled = true;
+        statusEl.textContent = "Extracting files and generating embeddings. This can take several minutes…";
+        try {
+            const response = await fetch("/api/course/publish", {
+                method: "POST",
+                headers: adminHeaders(),
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || "Publishing failed");
+            statusEl.textContent = `Published ${data.document_count} documents as ${data.chunk_count} searchable passages.`;
+            await loadAnalytics();
+        } catch (error) {
+            statusEl.textContent = `Error: ${error.message}`;
+        } finally {
+            publishBtn.disabled = false;
+        }
+    };
+
+    function formatNumber(value) {
+        return Number(value || 0).toLocaleString();
+    }
+
+    async function analyticsRequest(url) {
+        const response = await fetch(url, { headers: adminHeaders() });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Analytics request failed");
+        return data;
+    }
+
+    async function loadAnalytics() {
+        refreshAnalyticsBtn.disabled = true;
+        analyticsStatusEl.textContent = "Loading analytics…";
+        try {
+            const [summary, recent] = await Promise.all([
+                analyticsRequest("/api/analytics/summary"),
+                analyticsRequest("/api/analytics/runs?limit=25"),
+            ]);
+            document.getElementById("run-count").textContent = formatNumber(summary.run_count);
+            document.getElementById("success-rate").textContent = `${(summary.success_rate * 100).toFixed(1)}%`;
+            document.getElementById("average-latency").textContent = `${(summary.average_duration_ms / 1000).toFixed(2)} s`;
+            document.getElementById("input-tokens").textContent = formatNumber(summary.input_tokens);
+            document.getElementById("output-tokens").textContent = formatNumber(summary.output_tokens);
+            document.getElementById("energy").textContent = `${Number(summary.energy_wh_est).toFixed(4)} Wh`;
+            document.getElementById("electricity-note").textContent = summary.electricity_note;
+
+            const body = document.getElementById("runs");
+            body.replaceChildren();
+            for (const run of recent.runs) {
+                const row = document.createElement("tr");
+                const stages = run.stages
+                    .map(stage => `${stage.name} ${(stage.duration_ms / 1000).toFixed(2)}s`)
+                    .join(", ");
+                const values = [
+                    new Date(run.started_at).toLocaleString(),
+                    run.run_type.replaceAll("_", " "),
+                    run.success ? "success" : `failed (${run.error_type || "error"})`,
+                    `${(run.duration_ms / 1000).toFixed(2)} s`,
+                    `${(run.cpu_time_ms / 1000).toFixed(2)} s`,
+                    `${formatNumber(run.input_tokens)} / ${formatNumber(run.output_tokens)}`,
+                    Number(run.total_energy_wh_est).toFixed(4),
+                    stages || "—",
+                ];
+                for (const value of values) {
+                    const cell = document.createElement("td");
+                    cell.textContent = value;
+                    row.appendChild(cell);
+                }
+                body.appendChild(row);
+            }
+            analyticsStatusEl.textContent = recent.runs.length
+                ? `Showing the latest ${recent.runs.length} runs.`
+                : "No instrumented runs have completed yet.";
+        } catch (error) {
+            analyticsStatusEl.textContent = `Analytics error: ${error.message}`;
+        } finally {
+            refreshAnalyticsBtn.disabled = false;
+        }
+    }
+
+    refreshAnalyticsBtn.onclick = loadAnalytics;
+    tokenEl.addEventListener("change", loadAnalytics);
+
+    showStatus().catch(error => statusEl.textContent = `Error: ${error.message}`);
+    loadAnalytics();
+</script>
+</body>
+</html>

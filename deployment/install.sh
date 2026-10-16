@@ -41,9 +41,10 @@ mkdir -p \
 echo
 echo "Python environments are installed."
 echo "Next steps:"
-echo "  1. Install Ollama and run: ollama pull llama3"
+echo "  1. Install Ollama and pull qwen2.5:7b and nomic-embed-text"
 echo "  2. Copy the two Wav2Lip weights and the private Sid.wav file."
-echo "  3. Follow deployment/README.md to install the service and Nginx config."
+echo "  3. Add professor materials and assessment.yaml to the course folder."
+echo "  4. Follow deployment/README.md to install the service and Nginx config."
 
 if command -v nvidia-smi >/dev/null 2>&1; then
     nvidia-smi

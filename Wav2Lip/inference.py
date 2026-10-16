@@ -6,7 +6,6 @@ from tqdm import tqdm
 from glob import glob
 import torch, face_detection
 from models import Wav2Lip
-import platform
 
 parser = argparse.ArgumentParser(description='Inference code to lip-sync videos in the wild using Wav2Lip models')
 
@@ -53,8 +52,31 @@ parser.add_argument('--nosmooth', default=False, action='store_true',
 args = parser.parse_args()
 args.img_size = 96
 
-if os.path.isfile(args.face) and args.face.split('.')[1] in ['jpg', 'png', 'jpeg']:
+IMAGE_SUFFIXES = {'.jpg', '.jpeg', '.png'}
+
+if os.path.isfile(args.face) and path.splitext(args.face)[1].lower() in IMAGE_SUFFIXES:
 	args.static = True
+
+
+def prepare_frame(frame):
+	if frame is None:
+		raise ValueError('Could not read the face image or video frame')
+	if args.resize_factor > 1:
+		frame = cv2.resize(
+			frame,
+			(frame.shape[1] // args.resize_factor, frame.shape[0] // args.resize_factor),
+		)
+	if args.rotate:
+		frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+	y1, y2, x1, x2 = args.crop
+	if x2 == -1:
+		x2 = frame.shape[1]
+	if y2 == -1:
+		y2 = frame.shape[0]
+	frame = frame[y1:y2, x1:x2]
+	if frame.size == 0:
+		raise ValueError('The requested face crop produced an empty frame')
+	return frame
 
 def get_smoothened_boxes(boxes, T):
 	for i in range(len(boxes)):
@@ -183,8 +205,12 @@ def main():
 	if not os.path.isfile(args.face):
 		raise ValueError('--face argument must be a valid path to video/image file')
 
-	elif args.face.split('.')[1] in ['jpg', 'png', 'jpeg']:
-		full_frames = [cv2.imread(args.face)]
+	os.makedirs('temp', exist_ok=True)
+	outfile_parent = os.path.dirname(os.path.abspath(args.outfile))
+	os.makedirs(outfile_parent, exist_ok=True)
+
+	if path.splitext(args.face)[1].lower() in IMAGE_SUFFIXES:
+		full_frames = [prepare_frame(cv2.imread(args.face))]
 		fps = args.fps
 
 	else:
@@ -199,27 +225,16 @@ def main():
 			if not still_reading:
 				video_stream.release()
 				break
-			if args.resize_factor > 1:
-				frame = cv2.resize(frame, (frame.shape[1]//args.resize_factor, frame.shape[0]//args.resize_factor))
-
-			if args.rotate:
-				frame = cv2.rotate(frame, cv2.cv2.ROTATE_90_CLOCKWISE)
-
-			y1, y2, x1, x2 = args.crop
-			if x2 == -1: x2 = frame.shape[1]
-			if y2 == -1: y2 = frame.shape[0]
-
-			frame = frame[y1:y2, x1:x2]
-
-			full_frames.append(frame)
+			full_frames.append(prepare_frame(frame))
 
 	print ("Number of frames available for inference: "+str(len(full_frames)))
 
 	if not args.audio.endswith('.wav'):
 		print('Extracting raw audio...')
-		command = 'ffmpeg -y -i {} -strict -2 {}'.format(args.audio, 'temp/temp.wav')
-
-		subprocess.call(command, shell=True)
+		subprocess.run(
+			['ffmpeg', '-y', '-i', args.audio, '-strict', '-2', 'temp/temp.wav'],
+			check=True,
+		)
 		args.audio = 'temp/temp.wav'
 
 	wav = audio.load_wav(args.audio, 16000)
@@ -256,6 +271,8 @@ def main():
 			frame_h, frame_w = full_frames[0].shape[:-1]
 			out = cv2.VideoWriter('temp/result.avi', 
 									cv2.VideoWriter_fourcc(*'DIVX'), fps, (frame_w, frame_h))
+			if not out.isOpened():
+				raise RuntimeError('Could not open the temporary Wav2Lip video writer')
 
 		img_batch = torch.FloatTensor(np.transpose(img_batch, (0, 3, 1, 2))).to(device)
 		mel_batch = torch.FloatTensor(np.transpose(mel_batch, (0, 3, 1, 2))).to(device)
@@ -274,8 +291,13 @@ def main():
 
 	out.release()
 
-	command = 'ffmpeg -y -i {} -i {} -strict -2 -q:v 1 {}'.format(args.audio, 'temp/result.avi', args.outfile)
-	subprocess.call(command, shell=platform.system() != 'Windows')
+	subprocess.run(
+		[
+			'ffmpeg', '-y', '-i', args.audio, '-i', 'temp/result.avi',
+			'-strict', '-2', '-q:v', '1', args.outfile,
+		],
+		check=True,
+	)
 
 if __name__ == '__main__':
 	main()

@@ -1,0 +1,119 @@
+course_id: cis484-demo
+title: CIS 484 Oral Assessment Demo
+
+objectives:
+  LO1: Explain foundational database transaction and indexing concepts.
+  LO2: Compare common operating-system and concurrency mechanisms.
+  LO3: Explain distributed-system and web API tradeoffs.
+  LO4: Explain runtime, security, and software architecture concepts.
+
+questions:
+  - id: Q001
+    prompt: What is ACID compliance in database transactions?
+    objectives: [LO1]
+    rubric:
+      - id: Q001-R1
+        description: Explains atomicity, consistency, isolation, and durability accurately.
+        required: true
+      - id: Q001-R2
+        description: Connects ACID properties to reliable database transactions.
+        required: true
+
+  - id: Q002
+    prompt: What is the difference between a process and a thread?
+    objectives: [LO2]
+    rubric:
+      - id: Q002-R1
+        description: Explains that processes have separate address spaces and resources.
+        required: true
+      - id: Q002-R2
+        description: Explains that threads share process resources while retaining execution state.
+        required: true
+
+  - id: Q003
+    prompt: How does the CAP theorem apply to distributed databases?
+    objectives: [LO3]
+    rubric:
+      - id: Q003-R1
+        description: Identifies consistency, availability, and partition tolerance.
+        required: true
+      - id: Q003-R2
+        description: Explains the tradeoff during a network partition.
+        required: true
+
+  - id: Q004
+    prompt: What is the difference between REST and GraphQL APIs?
+    objectives: [LO3]
+    rubric:
+      - id: Q004-R1
+        description: Describes REST resources and HTTP-oriented endpoints.
+        required: true
+      - id: Q004-R2
+        description: Describes GraphQL queries and client-selected response fields.
+        required: true
+
+  - id: Q005
+    prompt: How does garbage collection work in high-level programming languages?
+    objectives: [LO4]
+    rubric:
+      - id: Q005-R1
+        description: Explains automatic identification and reclamation of unreachable objects.
+        required: true
+      - id: Q005-R2
+        description: Mentions a valid collection strategy or runtime tradeoff.
+        required: false
+
+  - id: Q006
+    prompt: What is the difference between optimistic and pessimistic locking?
+    objectives: [LO1, LO2]
+    rubric:
+      - id: Q006-R1
+        description: Explains that optimistic locking detects conflicts when committing.
+        required: true
+      - id: Q006-R2
+        description: Explains that pessimistic locking prevents conflicts by acquiring locks earlier.
+        required: true
+
+  - id: Q007
+    prompt: How does a B-tree index optimize database queries?
+    objectives: [LO1]
+    rubric:
+      - id: Q007-R1
+        description: Explains the balanced ordered tree structure and logarithmic lookup behavior.
+        required: true
+      - id: Q007-R2
+        description: Connects ordering to efficient range queries.
+        required: false
+
+  - id: Q008
+    prompt: What are the key differences between synchronous and asynchronous execution?
+    objectives: [LO2]
+    rubric:
+      - id: Q008-R1
+        description: Explains blocking sequential progress in synchronous execution.
+        required: true
+      - id: Q008-R2
+        description: Explains how asynchronous work allows progress while operations wait.
+        required: true
+
+  - id: Q009
+    prompt: How does HTTPS secure communication over the web?
+    objectives: [LO4]
+    rubric:
+      - id: Q009-R1
+        description: Explains TLS encryption in transit.
+        required: true
+      - id: Q009-R2
+        description: Explains certificate-based server authentication and integrity protection.
+        required: true
+
+  - id: Q010
+    prompt: What is the purpose of dependency injection in software architecture?
+    objectives: [LO4]
+    rubric:
+      - id: Q010-R1
+        description: Explains that dependencies are supplied rather than constructed internally.
+        required: true
+      - id: Q010-R2
+        description: Connects dependency injection to loose coupling and testability.
+        required: true

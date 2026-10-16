@@ -1,0 +1,26 @@
+course_id: test-course
+title: Test Course
+
+objectives:
+  LO1: Explain database transaction concepts.
+  LO2: Explain web security concepts.
+
+questions:
+  - id: Q001
+    prompt: What is ACID compliance in database transactions?
+    objectives: [LO1]
+    rubric:
+      - id: Q001-R1
+        description: Explains the four ACID properties.
+        required: true
+      - id: Q001-R2
+        description: Connects ACID to transaction reliability.
+        required: true
+
+  - id: Q002
+    prompt: How does HTTPS protect web traffic?
+    objectives: [LO2]
+    rubric:
+      - id: Q002-R1
+        description: Explains encryption, authentication, and integrity.
+        required: true

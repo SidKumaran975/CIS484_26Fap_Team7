@@ -34,9 +34,15 @@ Install Ollama using its supported Linux installation procedure, enable its
 service, and download the configured model:
 
 ```bash
-ollama pull llama3
+ollama pull qwen2.5:7b
+ollama pull nomic-embed-text
 sudo systemctl enable --now ollama
 ```
+
+`qwen2.5:7b` performs the local rubric evaluation and follow-up generation.
+`nomic-embed-text` creates the local course-document embeddings. After packages
+and models have been downloaded once, assessment execution does not require a
+cloud API or internet connection.
 
 ## 3. Copy files that cannot be stored in Git
 
@@ -61,6 +67,12 @@ sudo chmod 600 /opt/capstone/text-to-speech-model/Sid.wav
 ```bash
 sudo install -d -o capstone -g capstone /etc/capstone
 sudo install -d -m 750 -o capstone -g capstone /var/lib/capstone/recordings
+sudo install -d -m 750 -o capstone -g capstone /var/lib/capstone/course
+sudo install -d -m 750 -o capstone -g capstone /var/lib/capstone/index
+sudo install -d -m 750 -o capstone -g capstone /var/lib/capstone/media
+sudo cp /opt/capstone/course-materials/assessment.yaml /var/lib/capstone/course/
+sudo cp -R /opt/capstone/course-materials/materials /var/lib/capstone/course/
+sudo chown -R capstone:capstone /var/lib/capstone
 sudo cp /opt/capstone/deployment/capstone.env.example \
   /etc/capstone/capstone.env
 sudo chown root:capstone /etc/capstone/capstone.env
@@ -85,6 +97,25 @@ sudo journalctl -u capstone -f
 
 The first start can take several minutes because XTTS and Faster Whisper may
 download their model data.
+
+Open `https://SERVER_NAME/admin` after Nginx and HTTPS are configured. Enter the
+`ADMIN_TOKEN` from `/etc/capstone/capstone.env` and publish the professor's
+course folder. Publishing extracts the supported documents and rebuilds the
+on-disk Qdrant vector index. Publish again whenever course files or
+`assessment.yaml` change.
+
+The same admin page displays local performance analytics for each publish,
+session start, and assessment turn. It includes stage latency, CPU time, peak
+process memory, Ollama input/output token counts, model timing, success rate,
+and estimated watt-hours. On the NVIDIA server, GPU power is sampled with
+`nvidia-smi`. `ANALYTICS_BASE_WATTS` represents estimated non-GPU system draw;
+calibrate it against a wall power meter if energy accuracy is important. These
+numbers are operational estimates, not utility-grade measurements.
+
+The professor's folder supports `.pdf`, `.pptx`, `.docx`, `.txt`, and `.md`.
+Scanned PDFs must be OCR-processed first. The exact questions, objective links,
+and rubric criteria belong in `assessment.yaml`; slides and activities supply
+retrieved course evidence.
 
 ## 5. Configure Nginx and HTTPS
 

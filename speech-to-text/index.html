@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,201 +5,223 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Capstone Oral Assessment</title>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+        * { box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: #0f172a;
-            color: #e2e8f0;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 2rem;
+            margin: 0; padding: 2rem; min-height: 100vh;
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #0f172a; color: #e2e8f0;
         }
-        h1 {
-            font-size: 1.75rem;
-            margin-bottom: 1.5rem;
-            color: #38bdf8;
+        main { width: min(760px, 100%); margin: 0 auto; }
+        h1 { color: #38bdf8; margin-bottom: .4rem; }
+        .muted { color: #94a3b8; }
+        .card {
+            background: #1e293b; border: 1px solid #334155;
+            border-radius: 14px; padding: 1.25rem; margin: 1rem 0;
         }
-        /* ── Video Area ── */
-        #video-container {
-            background: #000;
-            border-radius: 12px;
-            overflow: hidden;
-            margin-bottom: 1.5rem;
-            box-shadow: 0 4px 24px rgba(0,0,0,.4);
-        }
-        video {
-            display: block;
-            width: 100%;
-            max-width: 480px;
-            background: #000;
-        }
-        /* ── Controls ── */
-        #controls {
-            display: flex;
-            gap: 1rem;
-            margin-bottom: 1.5rem;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
+        #question { font-size: 1.3rem; line-height: 1.55; }
+        #progress { color: #38bdf8; font-weight: 700; }
+        video { width: 100%; margin-top: 1rem; border-radius: 10px; }
+        video { max-height: 420px; background: #000; }
+        .controls { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1rem 0; }
         button {
-            padding: .7rem 1.4rem;
-            font-size: 1rem;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: opacity .2s, transform .1s;
+            border: 0; border-radius: 9px; padding: .75rem 1.1rem;
+            font-size: 1rem; font-weight: 700; cursor: pointer;
         }
-        button:disabled {
-            opacity: .35;
-            cursor: not-allowed;
-        }
-        button:active:not(:disabled) { transform: scale(.96); }
-        #play-btn   { background: #6366f1; color: #fff; }
-        #start-btn  { background: #22c55e; color: #fff; }
-        #stop-btn   { background: #ef4444; color: #fff; }
-        /* ── Status & Transcript ── */
-        #status {
-            font-size: 1rem;
-            margin-bottom: 1rem;
-            padding: .6rem 1rem;
-            background: #1e293b;
-            border-radius: 8px;
-            text-align: center;
-            min-width: 300px;
-        }
-        #transcript-box {
-            background: #1e293b;
-            border-radius: 12px;
-            padding: 1.25rem;
-            max-width: 560px;
-            width: 100%;
-        }
-        #transcript-box h2 {
-            font-size: 1.1rem;
-            color: #38bdf8;
-            margin-bottom: .5rem;
-        }
-        #transcript {
-            line-height: 1.6;
-            min-height: 2rem;
-            color: #cbd5e1;
-        }
-        .recording { animation: pulse 1s infinite; }
-        @keyframes pulse {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,.5); }
-            50%      { box-shadow: 0 0 0 10px rgba(239,68,68,0); }
-        }
+        button:disabled { opacity: .4; cursor: not-allowed; }
+        #begin { background: #38bdf8; color: #082f49; }
+        #play { background: #6366f1; color: white; }
+        #start { background: #22c55e; color: #052e16; }
+        #stop { background: #ef4444; color: white; }
+        #status { padding: .75rem; border-radius: 9px; background: #111827; }
+        #transcript { line-height: 1.55; }
+        .recording { outline: 2px solid #ef4444; }
+        .hidden { display: none; }
+        a { color: #38bdf8; }
     </style>
 </head>
 <body>
-    <h1>🎓 Capstone Oral Assessment</h1>
+<main>
+    <h1>Capstone Oral Assessment</h1>
+    <p class="muted">Answers are evaluated against the professor's rubric and published course materials.</p>
 
-    <!-- Avatar Video Player — no text overlay, just the deepfake -->
-    <div id="video-container">
-        <video id="avatar-video" preload="auto">
-            <source src="/video" type="video/mp4">
-        </video>
+    <section class="card">
+        <div id="progress">Course check</div>
+        <p id="question">Checking whether the course is ready…</p>
+        <video id="video" class="hidden" controls preload="auto"></video>
+    </section>
+
+    <div class="controls">
+        <button id="begin" disabled>Begin assessment</button>
+        <button id="play" disabled>Replay examiner video</button>
+        <button id="start" disabled>Record answer</button>
+        <button id="stop" disabled>Stop recording</button>
     </div>
 
-    <!-- Controls -->
-    <div id="controls">
-        <button id="play-btn">▶ Play Question</button>
-        <button id="start-btn" disabled>🎙 Record Answer</button>
-        <button id="stop-btn" disabled>⏹ Stop Recording</button>
-    </div>
+    <div id="status">Loading…</div>
 
-    <div id="status">Press <b>Play Question</b> to begin.</div>
+    <section class="card">
+        <h2>Latest transcript</h2>
+        <p id="transcript" class="muted">No answer recorded yet.</p>
+        <p id="decision" class="muted"></p>
+    </section>
+</main>
 
-    <div id="transcript-box">
-        <h2>Your Transcript</h2>
-        <p id="transcript">—</p>
-    </div>
+<script>
+    const beginBtn = document.getElementById("begin");
+    const playBtn = document.getElementById("play");
+    const startBtn = document.getElementById("start");
+    const stopBtn = document.getElementById("stop");
+    const statusEl = document.getElementById("status");
+    const questionEl = document.getElementById("question");
+    const progressEl = document.getElementById("progress");
+    const transcriptEl = document.getElementById("transcript");
+    const decisionEl = document.getElementById("decision");
+    const videoEl = document.getElementById("video");
 
-    <script>
-        const video      = document.getElementById("avatar-video");
-        const playBtn    = document.getElementById("play-btn");
-        const startBtn   = document.getElementById("start-btn");
-        const stopBtn    = document.getElementById("stop-btn");
-        const statusEl   = document.getElementById("status");
-        const transcript = document.getElementById("transcript");
+    let sessionId = null;
+    let mediaUrl = null;
+    let recorder = null;
+    let stream = null;
+    let chunks = [];
+    let mimeType = "audio/webm";
 
-        let recorder, stream, chunks = [];
+    async function api(url, options = {}) {
+        const response = await fetch(url, options);
+        if (!response.ok) {
+            let message = await response.text();
+            try { message = JSON.parse(message).detail || message; } catch (_) {}
+            throw new Error(message);
+        }
+        return response.json();
+    }
 
-        // ── Step 1: Play the avatar video ──
-        playBtn.onclick = () => {
-            video.currentTime = 0;
-            video.play();
-            playBtn.disabled = true;
-            statusEl.textContent = "Playing question…";
-        };
+    function setPrompt(data, key) {
+        questionEl.textContent = data[key];
+        progressEl.textContent = `Question ${data.question_number} of ${data.question_count}`;
+        mediaUrl = data.media_url;
+        videoEl.classList.add("hidden");
+        videoEl.removeAttribute("src");
+        if (!mediaUrl?.endsWith(".mp4")) throw new Error("Examiner video is unavailable");
+        videoEl.src = `${mediaUrl}?v=${Date.now()}`;
+        videoEl.classList.remove("hidden");
+        playBtn.disabled = false;
+        startBtn.disabled = true;
+    }
 
-        video.onended = () => {
-            statusEl.textContent = "Question finished. Record your answer when ready.";
-            startBtn.disabled = false;
-            playBtn.disabled  = false;
-        };
-
-        // ── Step 2: Record the student's spoken answer ──
-        startBtn.onclick = async () => {
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                chunks = [];
-
-                recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-
-                recorder.ondataavailable = e => {
-                    if (e.data.size > 0) chunks.push(e.data);
-                };
-
-                recorder.onstop = async () => {
-                    stream.getTracks().forEach(t => t.stop());
-                    statusEl.textContent = "Transcribing…";
-                    statusEl.classList.remove("recording");
-
-                    const blob = new Blob(chunks, { type: "audio/webm" });
-                    const form = new FormData();
-                    form.append("audio", blob, "answer.webm");
-
-                    try {
-                        const res = await fetch("/transcribe", {
-                            method: "POST",
-                            body: form,
-                        });
-                        if (!res.ok) {
-                            const errText = await res.text();
-                            throw new Error("Server error: " + errText);
-                        }
-                        const result = await res.json();
-                        transcript.textContent = result.text || "(no speech detected)";
-                        statusEl.textContent = "✔ Transcription complete.";
-                    } catch (err) {
-                        console.error("Transcription error:", err);
-                        statusEl.textContent = "Error: " + err.message;
-                        transcript.textContent = "Transcription failed. Is the server running?";
-                    }
-
-                    startBtn.disabled = false;
-                };
-
-                recorder.start();
-                startBtn.disabled = true;
-                stopBtn.disabled  = false;
-                statusEl.textContent = "🔴 Recording…";
-                statusEl.classList.add("recording");
-
-            } catch (err) {
-                statusEl.textContent = "Microphone error: " + err.message;
+    async function checkCourse() {
+        try {
+            const course = await api("/api/course/status");
+            if (course.ready) {
+                questionEl.textContent = `${course.title} is ready with ${course.question_count} questions and ${course.chunk_count} indexed course passages.`;
+                statusEl.textContent = "Ready to begin.";
+                beginBtn.disabled = false;
+            } else {
+                questionEl.textContent = course.message;
+                statusEl.innerHTML = 'The professor must publish course materials from the <a href="/admin">course administration page</a>.';
             }
-        };
+        } catch (error) {
+            statusEl.textContent = `Startup error: ${error.message}`;
+        }
+    }
 
-        // ── Step 3: Stop recording ──
-        stopBtn.onclick = () => {
-            stopBtn.disabled = true;
-            recorder.stop();
-        };
-    </script>
+    beginBtn.onclick = async () => {
+        beginBtn.disabled = true;
+        statusEl.textContent = "Preparing the first question…";
+        try {
+            const data = await api("/api/sessions", { method: "POST" });
+            sessionId = data.session_id;
+            setPrompt(data, "prompt");
+            await playQuestion();
+        } catch (error) {
+            statusEl.textContent = `Could not start: ${error.message}`;
+            beginBtn.disabled = false;
+        }
+    };
+
+    async function playQuestion() {
+        playBtn.disabled = true;
+        startBtn.disabled = true;
+        statusEl.textContent = "The examiner is asking the question…";
+        videoEl.currentTime = 0;
+        try {
+            await videoEl.play();
+        } catch (error) {
+            playBtn.disabled = false;
+            statusEl.textContent = "Examiner video is ready. Press Replay examiner video to begin.";
+        }
+    }
+
+    playBtn.onclick = playQuestion;
+
+    function questionFinished() {
+        statusEl.textContent = "Record your answer when ready.";
+        playBtn.disabled = false;
+        startBtn.disabled = false;
+    }
+    videoEl.onended = questionFinished;
+    videoEl.onerror = () => {
+        statusEl.textContent = "The examiner video could not be played. Regenerate the question or check the server logs.";
+        playBtn.disabled = false;
+        startBtn.disabled = true;
+    };
+
+    startBtn.onclick = async () => {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            chunks = [];
+            mimeType = MediaRecorder.isTypeSupported("audio/webm")
+                ? "audio/webm" : "audio/mp4";
+            recorder = new MediaRecorder(stream, { mimeType });
+            recorder.ondataavailable = event => {
+                if (event.data.size) chunks.push(event.data);
+            };
+            recorder.onstop = submitRecording;
+            recorder.start();
+            startBtn.disabled = true;
+            playBtn.disabled = true;
+            stopBtn.disabled = false;
+            statusEl.textContent = "Recording…";
+            statusEl.classList.add("recording");
+        } catch (error) {
+            statusEl.textContent = `Microphone error: ${error.message}`;
+        }
+    };
+
+    stopBtn.onclick = () => {
+        stopBtn.disabled = true;
+        recorder.stop();
+    };
+
+    async function submitRecording() {
+        stream.getTracks().forEach(track => track.stop());
+        statusEl.classList.remove("recording");
+        statusEl.textContent = "Transcribing, retrieving, evaluating, and preparing the examiner…";
+        const blob = new Blob(chunks, { type: mimeType });
+        const form = new FormData();
+        form.append("session_id", sessionId);
+        form.append("audio", blob, mimeType === "audio/webm" ? "answer.webm" : "answer.m4a");
+        try {
+            const data = await api("/api/answers", { method: "POST", body: form });
+            transcriptEl.textContent = data.transcript || "No speech detected.";
+            decisionEl.textContent = `Decision: ${data.action.replace("_", " ")}`;
+            if (data.completed) {
+                progressEl.textContent = "Assessment complete";
+                questionEl.textContent = "Thank you. You have completed the assessment.";
+                statusEl.textContent = "Complete.";
+                playBtn.disabled = true;
+                startBtn.disabled = true;
+                return;
+            }
+            setPrompt(data, "next_prompt");
+            await playQuestion();
+        } catch (error) {
+            statusEl.textContent = `Answer error: ${error.message}`;
+            startBtn.disabled = error.message.toLowerCase().includes("video");
+            playBtn.disabled = false;
+        }
+    }
+
+    checkCourse();
+</script>
 </body>
 </html>
