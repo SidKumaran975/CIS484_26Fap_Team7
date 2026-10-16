@@ -13,6 +13,8 @@ This repository contains a local AI assessment pipeline with three stages:
 - `text-to-speech-model/` contains the text-to-speech entry point.
 - `Wav2Lip/` contains the vendored Wav2Lip source code.
 - `speech-to-text/` contains the FastAPI server and browser interface.
+- `faculty-portal/` contains the faculty upload and question-generation UI
+  (port 8001). See `faculty-portal/README.md`.
 
 ## Local-only files
 
