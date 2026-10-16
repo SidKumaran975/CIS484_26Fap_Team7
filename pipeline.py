@@ -13,11 +13,13 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent
 STT_DIR = ROOT_DIR / "speech-to-text"
+FACULTY_DIR = ROOT_DIR / "faculty-portal"
 STT_PYTHON = os.environ.get("STT_PYTHON", sys.executable)
 MAIN_PYTHON = os.environ.get("MAIN_PYTHON", sys.executable)
 WAV2LIP_PYTHON = os.environ.get("WAV2LIP_PYTHON", sys.executable)
 STT_HOST = os.environ.get("STT_HOST", "127.0.0.1")
 STT_PORT = os.environ.get("STT_PORT", "8000")
+FACULTY_PORT = os.environ.get("PORT", "8001")
 MEDIA_MODE = os.environ.get("MEDIA_MODE", "avatar").lower()
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -28,11 +30,7 @@ def preflight() -> None:
     checks = [
         ("Speech-to-text Python", Path(STT_PYTHON)),
         ("FastAPI application", STT_DIR / "app.py"),
-        (
-            "Course assessment definition",
-            Path(os.environ.get("COURSE_CONTENT_DIR", ROOT_DIR / "course-materials"))
-            / "assessment.yaml",
-        ),
+        ("Faculty portal application", FACULTY_DIR / "app.py"),
     ]
     if MEDIA_MODE in {"audio", "avatar"}:
         checks.extend(
@@ -57,6 +55,10 @@ def preflight() -> None:
                     "Wav2Lip checkpoint",
                     ROOT_DIR / "Wav2Lip" / "checkpoints" / "wav2lip.pth",
                 ),
+                (
+                    "Wav2Lip face detector",
+                    ROOT_DIR / "Wav2Lip" / "face_detection" / "detection" / "sfd" / "s3fd.pth",
+                ),
                 ("Avatar image", ROOT_DIR / "BabAvatar.png"),
             ]
         )
@@ -71,7 +73,12 @@ def preflight() -> None:
 def main() -> None:
     preflight()
     log.info("Starting assessment server at http://%s:%s", STT_HOST, STT_PORT)
-    log.info("Course administration: http://%s:%s/admin", STT_HOST, STT_PORT)
+    log.info("Starting faculty portal at http://%s:%s/login", STT_HOST, FACULTY_PORT)
+    faculty = subprocess.Popen(
+        [STT_PYTHON, "app.py"],
+        cwd=FACULTY_DIR,
+        env={**os.environ, "HOST": STT_HOST, "PORT": FACULTY_PORT},
+    )
     try:
         subprocess.run(
             [
@@ -88,7 +95,13 @@ def main() -> None:
             check=True,
         )
     except KeyboardInterrupt:
-        log.info("Assessment server stopped.")
+        log.info("Assessment services stopped.")
+    finally:
+        faculty.terminate()
+        try:
+            faculty.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            faculty.kill()
 
 
 if __name__ == "__main__":

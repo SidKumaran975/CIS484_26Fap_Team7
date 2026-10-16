@@ -86,6 +86,8 @@ class AnalyticsStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(self.path, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
+        self.connection.execute("PRAGMA journal_mode=WAL")
+        self.connection.execute("PRAGMA busy_timeout=5000")
         self.lock = threading.Lock()
         with self.connection:
             self.connection.executescript(

@@ -8,6 +8,11 @@ from pathlib import Path
 import ollama
 from qdrant_client import QdrantClient, models
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - the deployed macOS/Linux services have fcntl
+    fcntl = None
+
 from .analytics import record_ollama_call
 from .extractors import extract_file, iter_course_files
 from .schemas import RetrievedChunk
@@ -36,7 +41,19 @@ class CourseIndex:
         self.db_path = db_path
         self.embed_model = embed_model
         self.db_path.mkdir(parents=True, exist_ok=True)
-        self.client = QdrantClient(path=str(self.db_path))
+        # Qdrant's embedded/local client takes an exclusive filesystem lock.
+        # The faculty portal and student service are separate processes, so
+        # serialize their short-lived clients with our own course-local lock.
+        self._lock_file = (self.db_path.parent / ".qdrant-client.lock").open("a+")
+        if fcntl is not None:
+            fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            self.client = QdrantClient(path=str(self.db_path))
+        except Exception:
+            if fcntl is not None:
+                fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)
+            self._lock_file.close()
+            raise
         ollama_host = os.environ.get("OLLAMA_HOST")
         self.ollama = (
             ollama.Client(host=ollama_host) if ollama_host else ollama.Client()
@@ -48,6 +65,9 @@ class CourseIndex:
 
     def close(self) -> None:
         self.client.close()
+        if fcntl is not None:
+            fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)
+        self._lock_file.close()
 
     def exists(self) -> bool:
         return self.client.collection_exists(COLLECTION_NAME)

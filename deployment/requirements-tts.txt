@@ -1,2 +1,5 @@
 coqui-tts>=0.27,<0.28
+# XTTS 0.27 imports an API removed in Transformers 5.
+transformers>=4.38,<5
+torchcodec>=0.8,<1
 soundfile>=0.12,<1

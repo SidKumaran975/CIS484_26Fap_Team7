@@ -27,20 +27,30 @@ import json
 import random
 import os
 import re
+import shutil
 import sqlite3
+import sys
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Optional
 
 import httpx
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 import auth
 from auth import current_user, home_for, require_faculty, require_user
 from pydantic import BaseModel, Field
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from rag.analytics import AnalyticsStore, record_ollama_call
+from rag.index import CourseIndex
 
 # ================= CONFIG (override with environment variables) =================
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
@@ -58,16 +68,31 @@ MAX_UPLOAD_MB = 25
 ALLOWED_EXT = {".pdf", ".docx", ".pptx", ".txt", ".md"}
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "exam_builder.db"
-EXAMS_DIR = BASE_DIR / "exams"
+DB_PATH = Path(os.getenv("DB_PATH", BASE_DIR / "exam_builder.db")).resolve()
+EXAMS_DIR = Path(os.getenv("FACULTY_EXAMS_DIR", BASE_DIR / "exams")).resolve()
+COURSE_STORAGE_DIR = Path(
+    os.getenv("FACULTY_COURSE_STORAGE", ROOT_DIR / "runtime" / "faculty-courses")
+).resolve()
+COURSE_INDEX_DIR = Path(
+    os.getenv("FACULTY_INDEX_STORAGE", ROOT_DIR / "runtime" / "faculty-indexes")
+).resolve()
+ANALYTICS_DB_PATH = Path(
+    os.getenv("ANALYTICS_DB_PATH", ROOT_DIR / "runtime" / "analytics.sqlite3")
+).resolve()
+EMBED_MODEL = os.getenv("RAG_EMBED_MODEL", "nomic-embed-text")
+ANALYTICS_BASE_WATTS = float(os.getenv("ANALYTICS_BASE_WATTS", "30"))
 STATIC_PAGE = BASE_DIR / "index.html"   # same layout as speech-to-text/
 LOGIN_PAGE = BASE_DIR / "login.html"
-EXAMS_DIR.mkdir(exist_ok=True)
+EXAMS_DIR.mkdir(parents=True, exist_ok=True)
+COURSE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+COURSE_INDEX_DIR.mkdir(parents=True, exist_ok=True)
+ANALYTICS = AnalyticsStore(ANALYTICS_DB_PATH, ANALYTICS_BASE_WATTS)
 
 # ================= DATABASE (SQLite, no setup needed) =================
 def db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -96,6 +121,8 @@ def init_db():
         # Columns added when courses were introduced (keeps older databases working).
         _add_column(c, "materials", "course_id", "TEXT")
         _add_column(c, "materials", "size", "INTEGER")
+        _add_column(c, "materials", "relative_path", "TEXT")
+        _add_column(c, "materials", "storage_path", "TEXT")
         _add_column(c, "exams", "course_id", "TEXT")
         c.execute("CREATE INDEX IF NOT EXISTS idx_materials_course ON materials(course_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_exams_course ON exams(course_id)")
@@ -103,6 +130,28 @@ def init_db():
 
 
 init_db()
+
+
+def course_materials_dir(course_id: str) -> Path:
+    return COURSE_STORAGE_DIR / course_id / "materials"
+
+
+def course_index_dir(course_id: str) -> Path:
+    return COURSE_INDEX_DIR / course_id / "qdrant"
+
+
+def mark_course_index_dirty(course_id: str) -> None:
+    (course_index_dir(course_id).parent / "manifest.json").unlink(missing_ok=True)
+
+
+def clean_relative_path(value: str, fallback: str) -> Path:
+    """Return a safe relative upload path while preserving folder structure."""
+    raw = (value or fallback).replace("\\", "/").strip("/")
+    parts = [part for part in PurePosixPath(raw).parts if part not in {"", "."}]
+    if not parts or any(part == ".." for part in parts):
+        raise HTTPException(400, "Invalid upload path.")
+    safe_parts = [re.sub(r"[^A-Za-z0-9._() -]", "_", part) for part in parts]
+    return Path(*safe_parts)
 
 # ================= TEXT EXTRACTION =================
 def extract_text(filename: str, data: bytes) -> str:
@@ -256,7 +305,9 @@ async def ask_llama(prompt: str) -> dict:
     if r.status_code == 404:
         raise HTTPException(503, f"Model '{OLLAMA_MODEL}' isn't pulled. Run: ollama pull {OLLAMA_MODEL}")
     r.raise_for_status()
-    content = r.json()["message"]["content"]
+    body = r.json()
+    record_ollama_call(body, operation="question_generation", model=OLLAMA_MODEL, item_count=1)
+    content = body["message"]["content"]
     return json.loads(content)
 
 
@@ -377,10 +428,8 @@ app.include_router(auth.router)
 
 
 @app.get("/login")
-def login_page(request: Request):
-    user = current_user(request)
-    if user:                                   # already signed in: skip the form
-        return RedirectResponse(home_for(user, request), status_code=303)
+def login_page():
+    # Keep the role chooser reachable so a shared browser can switch accounts.
     return FileResponse(LOGIN_PAGE, headers={"Cache-Control": "no-store"})
 
 
@@ -396,15 +445,30 @@ def index(request: Request):
 
 @app.get("/api/health", dependencies=[Depends(require_faculty)])
 async def health():
-    ok = False
+    question_model_ready = False
+    embedding_model_ready = False
     try:
         async with httpx.AsyncClient(timeout=3) as client:
             tags = (await client.get(f"{OLLAMA_URL}/api/tags")).json()
         names = {m["name"].split(":")[0] for m in tags.get("models", [])}
-        ok = OLLAMA_MODEL.split(":")[0] in names
+        question_model_ready = OLLAMA_MODEL.split(":")[0] in names
+        embedding_model_ready = EMBED_MODEL.split(":")[0] in names
     except Exception:
         pass
-    return {"server": True, "ollama": ok, "model": OLLAMA_MODEL, "ollama_url": OLLAMA_URL}
+    return {"server": True, "ollama": question_model_ready and embedding_model_ready,
+            "question_model_ready": question_model_ready,
+            "embedding_model_ready": embedding_model_ready,
+            "model": OLLAMA_MODEL, "ollama_url": OLLAMA_URL, "embedding_model": EMBED_MODEL}
+
+
+@app.get("/api/analytics/summary")
+def analytics_summary(user: dict = Depends(require_faculty)):
+    return ANALYTICS.summary()
+
+
+@app.get("/api/analytics/runs")
+def analytics_runs(limit: int = 50, user: dict = Depends(require_faculty)):
+    return {"runs": ANALYTICS.recent_runs(limit)}
 
 
 # ================= COURSES =================
@@ -450,6 +514,8 @@ def delete_course(course_id: str, user: dict = Depends(require_faculty)):
         c.execute("DELETE FROM courses WHERE id=?", (course_id,))
     for eid in exam_ids:
         (EXAMS_DIR / f"{eid}.json").unlink(missing_ok=True)
+    shutil.rmtree(COURSE_STORAGE_DIR / course_id, ignore_errors=True)
+    shutil.rmtree(COURSE_INDEX_DIR / course_id, ignore_errors=True)
     return {"ok": True, "deleted_exams": len(exam_ids)}
 
 
@@ -458,16 +524,22 @@ def delete_course(course_id: str, user: dict = Depends(require_faculty)):
 def list_materials(course_id: str, user: dict = Depends(require_faculty)):
     get_course(course_id, user)
     with db() as c:
-        rows = c.execute("""SELECT m.id AS material_id, m.filename, m.size, m.characters, m.uploaded_at,
+        rows = c.execute("""SELECT m.id AS material_id, m.filename, m.relative_path, m.size, m.characters, m.uploaded_at,
                                    (SELECT COUNT(*) FROM chunks ch WHERE ch.material_id = m.id) AS chunks
                             FROM materials m WHERE m.course_id=? ORDER BY m.uploaded_at""", (course_id,)).fetchall()
     return [dict(r) for r in rows]
 
 
 @app.post("/api/courses/{course_id}/materials")
-async def upload_material(course_id: str, file: UploadFile = File(...), user: dict = Depends(require_faculty)):
+async def upload_material(
+    course_id: str,
+    file: UploadFile = File(...),
+    relative_path: str = Form(""),
+    user: dict = Depends(require_faculty),
+):
     get_course(course_id, user)
-    ext = Path(file.filename or "").suffix.lower()
+    upload_path = clean_relative_path(relative_path, file.filename or "upload")
+    ext = upload_path.suffix.lower()
     if ext not in ALLOWED_EXT:
         raise HTTPException(400, f"Unsupported file type {ext}. Use {', '.join(sorted(ALLOWED_EXT))}.")
     data = await file.read()
@@ -482,24 +554,88 @@ async def upload_material(course_id: str, file: UploadFile = File(...), user: di
         raise HTTPException(400, "No readable text found. If it's a scanned PDF, run OCR on it first.")
     mid = "mat_" + uuid.uuid4().hex[:10]
     uploaded = now()
+    storage_path = (course_materials_dir(course_id) / upload_path).resolve()
+    materials_root = course_materials_dir(course_id).resolve()
+    if materials_root not in storage_path.parents:
+        raise HTTPException(400, "Invalid upload path.")
+    storage_path.parent.mkdir(parents=True, exist_ok=True)
+    storage_path.write_bytes(data)
+    mark_course_index_dirty(course_id)
     with db() as c:
-        c.execute("INSERT INTO materials (id, filename, uploaded_at, characters, course_id, size) VALUES (?,?,?,?,?,?)",
-                  (mid, file.filename, uploaded, len(text), course_id, len(data)))
+        previous = c.execute(
+            "SELECT id, storage_path FROM materials WHERE course_id=? AND relative_path=?",
+            (course_id, upload_path.as_posix()),
+        ).fetchone()
+        if previous:
+            c.execute("DELETE FROM chunks WHERE material_id=?", (previous["id"],))
+            c.execute("DELETE FROM materials WHERE id=?", (previous["id"],))
+        c.execute("""INSERT INTO materials
+                     (id, filename, uploaded_at, characters, course_id, size, relative_path, storage_path)
+                     VALUES (?,?,?,?,?,?,?,?)""",
+                  (mid, upload_path.name, uploaded, len(text), course_id, len(data),
+                   upload_path.as_posix(), str(storage_path)))
         c.executemany("INSERT INTO chunks (material_id, idx, text) VALUES (?,?,?)",
                       [(mid, i, ch) for i, ch in enumerate(chunks)])
-    return {"material_id": mid, "filename": file.filename, "size": len(data), "chunks": len(chunks),
-            "characters": len(text), "uploaded_at": uploaded}
+    return {"material_id": mid, "filename": upload_path.name, "relative_path": upload_path.as_posix(),
+            "size": len(data), "chunks": len(chunks), "characters": len(text), "uploaded_at": uploaded}
 
 
 @app.delete("/api/courses/{course_id}/materials/{material_id}")
 def delete_material(course_id: str, material_id: str, user: dict = Depends(require_faculty)):
     get_course(course_id, user)
     with db() as c:
+        row = c.execute(
+            "SELECT storage_path FROM materials WHERE id=? AND course_id=?",
+            (material_id, course_id),
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Document not found.")
         cur = c.execute("DELETE FROM materials WHERE id=? AND course_id=?", (material_id, course_id))
         if cur.rowcount == 0:
             raise HTTPException(404, "Document not found.")
         c.execute("DELETE FROM chunks WHERE material_id=?", (material_id,))
+        remaining = c.execute(
+            "SELECT COUNT(*) FROM materials WHERE course_id=?", (course_id,)
+        ).fetchone()[0]
+    if row["storage_path"]:
+        Path(row["storage_path"]).unlink(missing_ok=True)
+    mark_course_index_dirty(course_id)
+    if not remaining:
+        shutil.rmtree(COURSE_INDEX_DIR / course_id, ignore_errors=True)
     return {"ok": True}
+
+
+@app.get("/api/courses/{course_id}/index")
+def course_index_status(course_id: str, user: dict = Depends(require_faculty)):
+    get_course(course_id, user)
+    manifest_path = course_index_dir(course_id).parent / "manifest.json"
+    if not manifest_path.is_file():
+        return {"ready": False, "course_id": course_id, "document_count": 0, "chunk_count": 0,
+                "indexed_at": None, "embedding_model": EMBED_MODEL}
+    status = json.loads(manifest_path.read_text(encoding="utf-8"))
+    status["ready"] = (
+        status.get("course_id") == course_id
+        and status.get("embedding_model") == EMBED_MODEL
+    )
+    return status
+
+
+@app.post("/api/courses/{course_id}/index")
+async def rebuild_course_index(course_id: str, user: dict = Depends(require_faculty)):
+    course = get_course(course_id, user)
+    material_dir = course_materials_dir(course_id)
+    with ANALYTICS.run("course_index") as run:
+        run.add_metric("course_id", course_id)
+        run.add_metric("course_code", course["code"])
+        with run.stage("course_extraction_and_embedding"):
+            index = CourseIndex(course_index_dir(course_id), EMBED_MODEL)
+            try:
+                status = await run_in_threadpool(index.rebuild, material_dir, course_id)
+            finally:
+                index.close()
+        run.add_metric("document_count", status["document_count"])
+        run.add_metric("chunk_count", status["chunk_count"])
+    return {**status, "ready": True}
 
 
 # ================= EXAMS (faculty) =================
@@ -534,9 +670,15 @@ async def generate(s: GenerateRequest, user: dict = Depends(require_faculty)):
     styles = s.styles or ["conceptual"]
     groups = pick_chunks(s.material_ids, s.focus_topics, s.num_questions)
     questions = []
-    for i, material in enumerate(groups):          # one Llama call per question = better grounding
-        q = await generate_one(material, s, styles[i % len(styles)], [x["question"] for x in questions])
-        questions.append(q)
+    with ANALYTICS.run("question_generation") as run:
+        run.add_metric("course_id", course["id"])
+        run.add_metric("requested_questions", s.num_questions)
+        run.add_metric("source_documents", len(s.material_ids))
+        for i, material in enumerate(groups):          # one Llama call per question = better grounding
+            with run.stage("question_generation"):
+                q = await generate_one(material, s, styles[i % len(styles)], [x["question"] for x in questions])
+            questions.append(q)
+        run.add_metric("generated_questions", len(questions))
     exam_id = "exam_" + uuid.uuid4().hex[:10]
     with db() as c:
         c.execute("INSERT INTO exams (id, course, title, settings, questions, status, created_at, published_at, course_id) "
@@ -555,7 +697,10 @@ async def regenerate(exam_id: str, s: RegenerateRequest, user: dict = Depends(re
     existing = json.loads(row["questions"])
     material = random.choice(pick_chunks(s.material_ids, s.focus_topics, max(3, s.num_questions)))
     style = random.choice(s.styles or ["conceptual"])
-    q = await generate_one(material, s, style, [x["question"] for x in existing])
+    with ANALYTICS.run("question_regeneration", question_id=s.question_id) as run:
+        run.add_metric("course_id", course["id"])
+        with run.stage("question_generation"):
+            q = await generate_one(material, s, style, [x["question"] for x in existing])
     existing = [q if x["id"] == s.question_id else x for x in existing]
     with db() as c:
         c.execute("UPDATE exams SET questions=? WHERE id=?", (json.dumps(existing), exam_id))
@@ -579,6 +724,12 @@ def publish(exam_id: str, s: PublishRequest, user: dict = Depends(require_facult
     course = get_course(row["course_id"], user)
     if not s.questions:
         raise HTTPException(400, "No questions to publish.")
+    manifest_path = course_index_dir(course["id"]).parent / "manifest.json"
+    if not manifest_path.is_file():
+        raise HTTPException(409, "Index this course's uploaded materials before publishing the exam.")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("course_id") != course["id"] or manifest.get("embedding_model") != EMBED_MODEL:
+        raise HTTPException(409, "The course index is out of date. Rebuild it before publishing.")
     published = now()
     exam = {
         "exam_id": exam_id,

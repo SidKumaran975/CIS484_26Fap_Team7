@@ -36,10 +36,11 @@ service, and download the configured model:
 ```bash
 ollama pull qwen2.5:7b
 ollama pull nomic-embed-text
+ollama pull llama3
 sudo systemctl enable --now ollama
 ```
 
-`qwen2.5:7b` performs the local rubric evaluation and follow-up generation.
+`llama3` generates faculty-reviewed exam questions. `qwen2.5:7b` performs the local rubric evaluation and follow-up generation.
 `nomic-embed-text` creates the local course-document embeddings. After packages
 and models have been downloaded once, assessment execution does not require a
 cloud API or internet connection.
@@ -67,11 +68,10 @@ sudo chmod 600 /opt/capstone/text-to-speech-model/Sid.wav
 ```bash
 sudo install -d -o capstone -g capstone /etc/capstone
 sudo install -d -m 750 -o capstone -g capstone /var/lib/capstone/recordings
-sudo install -d -m 750 -o capstone -g capstone /var/lib/capstone/course
-sudo install -d -m 750 -o capstone -g capstone /var/lib/capstone/index
+sudo install -d -m 750 -o capstone -g capstone /var/lib/capstone/faculty-courses
+sudo install -d -m 750 -o capstone -g capstone /var/lib/capstone/faculty-indexes
+sudo install -d -m 750 -o capstone -g capstone /var/lib/capstone/exams
 sudo install -d -m 750 -o capstone -g capstone /var/lib/capstone/media
-sudo cp /opt/capstone/course-materials/assessment.yaml /var/lib/capstone/course/
-sudo cp -R /opt/capstone/course-materials/materials /var/lib/capstone/course/
 sudo chown -R capstone:capstone /var/lib/capstone
 sudo cp /opt/capstone/deployment/capstone.env.example \
   /etc/capstone/capstone.env
@@ -98,24 +98,32 @@ sudo journalctl -u capstone -f
 The first start can take several minutes because XTTS and Faster Whisper may
 download their model data.
 
-Open `https://SERVER_NAME/admin` after Nginx and HTTPS are configured. Enter the
-`ADMIN_TOKEN` from `/etc/capstone/capstone.env` and publish the professor's
-course folder. Publishing extracts the supported documents and rebuilds the
-on-disk Qdrant vector index. Publish again whenever course files or
-`assessment.yaml` change.
+Create the first faculty account, then open the faculty portal on port 8001:
 
-The same admin page displays local performance analytics for each publish,
-session start, and assessment turn. It includes stage latency, CPU time, peak
+```bash
+sudo -u capstone env DB_PATH=/var/lib/capstone/exam_builder.db \
+  /opt/capstone/.venv-stt/bin/python \
+  /opt/capstone/faculty-portal/manage_users.py add faculty \
+  --role faculty --name "Faculty Member"
+```
+
+Faculty create courses, upload files or a folder, review generated questions,
+and publish an exam. Each upload batch rebuilds that course's separate Qdrant
+index with `nomic-embed-text`. Students sign in through the same portal and are
+redirected to the assessment service on port 8000.
+
+The faculty Analytics screen displays local performance analytics for indexing,
+question generation, session starts, and assessment turns. It includes stage latency, CPU time, peak
 process memory, Ollama input/output token counts, model timing, success rate,
 and estimated watt-hours. On the NVIDIA server, GPU power is sampled with
 `nvidia-smi`. `ANALYTICS_BASE_WATTS` represents estimated non-GPU system draw;
 calibrate it against a wall power meter if energy accuracy is important. These
 numbers are operational estimates, not utility-grade measurements.
 
-The professor's folder supports `.pdf`, `.pptx`, `.docx`, `.txt`, and `.md`.
-Scanned PDFs must be OCR-processed first. The exact questions, objective links,
-and rubric criteria belong in `assessment.yaml`; slides and activities supply
-retrieved course evidence.
+Faculty folders support `.pdf`, `.pptx`, `.docx`, `.txt`, and `.md`. Scanned
+PDFs must be OCR-processed first. A published question's private `key_points`
+become the evaluator's rubric criteria; uploaded material supplies retrieved
+course evidence.
 
 ## 5. Configure Nginx and HTTPS
 

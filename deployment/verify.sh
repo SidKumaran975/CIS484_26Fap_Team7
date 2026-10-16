@@ -17,7 +17,8 @@ check_file "${REPO_DIR}/Wav2Lip/checkpoints/wav2lip.pth"
 check_file "${REPO_DIR}/Wav2Lip/face_detection/detection/sfd/s3fd.pth"
 check_file "${REPO_DIR}/text-to-speech-model/Sid.wav"
 check_file "${REPO_DIR}/BabAvatar.png"
-check_file "${REPO_DIR}/course-materials/assessment.yaml"
+check_file "${REPO_DIR}/faculty-portal/app.py"
+check_file "${REPO_DIR}/faculty-portal/manage_users.py"
 
 for environment in tts wav2lip stt; do
     check_file "${REPO_DIR}/.venv-${environment}/bin/python"

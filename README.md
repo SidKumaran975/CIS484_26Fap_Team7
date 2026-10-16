@@ -2,8 +2,8 @@
 
 This repository contains a local AI oral-assessment pipeline:
 
-1. A professor publishes questions, rubrics, and course documents.
-2. Course documents are embedded locally into an on-disk Qdrant vector index.
+1. A professor creates a course, uploads files or a folder, reviews generated questions, and publishes an exam in the faculty portal.
+2. Uploaded files are preserved by course and embedded locally into a separate on-disk Qdrant index for that course.
 3. The browser records an answer and Faster Whisper transcribes it.
 4. Ollama retrieves evidence, evaluates the rubric, and creates a follow-up or
    advances to the next preloaded question.
@@ -19,6 +19,7 @@ This repository contains a local AI oral-assessment pipeline:
 - `course-materials/` is the professor-facing development folder.
 - `faculty-portal/` contains the faculty upload and question-generation UI
   (port 8001). See `faculty-portal/README.md`.
+- `runtime/faculty-courses/` and `runtime/faculty-indexes/` hold ignored course uploads and per-course Qdrant data.
 
 ## Local-only files
 
@@ -54,17 +55,16 @@ python -m pip install -r deployment/requirements-tts.txt
 python -m pip install -r deployment/requirements-wav2lip.txt
 ```
 
-Pull the local evaluation and embedding models, start the application, then
-publish the course from the `/admin` page:
+Pull the local question-generation, evaluation, and embedding models, then start both the faculty and student services:
 
 ```bash
 ollama pull qwen2.5:7b
 ollama pull nomic-embed-text
+ollama pull llama3
 python pipeline.py
 ```
 
-The web application is served at `http://127.0.0.1:8000`. Open `/admin` to
-publish course materials before beginning an assessment.
+Create the first faculty account with `faculty-portal/manage_users.py`, then open `http://127.0.0.1:8001/login`. Students sign in on the same page and are redirected to the assessment interface on port 8000.
 
 ### Sprint 1 avatar behavior
 
@@ -117,9 +117,7 @@ for this workflow.
 
 ## Local analytics
 
-The `/admin` page includes an offline analytics dashboard. A run is recorded for
-every course publish, assessment-session start, and student-answer turn. The
-dashboard reports:
+The faculty portal includes an Analytics screen. A run is recorded for course indexing, question generation, assessment-session starts, and student-answer turns. The dashboard reports:
 
 - total latency plus per-stage timing for transcription, retrieval, model
   evaluation, XTTS, and Wav2Lip;

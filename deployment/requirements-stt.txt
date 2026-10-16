@@ -1,5 +1,7 @@
 fastapi>=0.115,<1
 faster-whisper>=1.2,<2
+# Faster Whisper 1.2.1 passes metadata_errors to av.open; PyAV 19 removed it.
+av>=11,<19
 numpy>=1.24,<3
 ollama>=0.6,<1
 pydantic>=2.7,<3

@@ -34,6 +34,7 @@ class SessionStore:
                 CREATE TABLE IF NOT EXISTS assessment_sessions (
                     id TEXT PRIMARY KEY,
                     course_id TEXT NOT NULL,
+                    exam_id TEXT,
                     question_index INTEGER NOT NULL DEFAULT 0,
                     follow_up_count INTEGER NOT NULL DEFAULT 0,
                     completed INTEGER NOT NULL DEFAULT 0,
@@ -54,15 +55,21 @@ class SessionStore:
                     FOREIGN KEY(session_id) REFERENCES assessment_sessions(id)
                 );
             """)
+            columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(assessment_sessions)")
+            }
+            if "exam_id" not in columns:
+                connection.execute("ALTER TABLE assessment_sessions ADD COLUMN exam_id TEXT")
 
-    def create(self, course_id: str) -> dict:
+    def create(self, course_id: str, exam_id: str | None = None) -> dict:
         session_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         with self.lock, self._connection() as connection:
             connection.execute(
                 "INSERT INTO assessment_sessions "
-                "(id, course_id, created_at, updated_at) VALUES (?, ?, ?, ?)",
-                (session_id, course_id, now, now),
+                "(id, course_id, exam_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (session_id, course_id, exam_id, now, now),
             )
         return self.get(session_id)
 

@@ -3,15 +3,21 @@ from .config import Settings
 from .course import load_assessment
 from .evaluator import Evaluator, choose_action
 from .index import CourseIndex
-from .schemas import CourseStatus
+from .schemas import AssessmentDefinition, CourseStatus
 from .sessions import SessionStore
 
 
 class AssessmentEngine:
-    def __init__(self, settings: Settings):
+    def __init__(
+        self,
+        settings: Settings,
+        assessment: AssessmentDefinition | None = None,
+        exam_id: str | None = None,
+    ):
         self.settings = settings
         self.settings.prepare_runtime_dirs()
-        self.assessment = load_assessment(settings.course_content_dir)
+        self.assessment = assessment or load_assessment(settings.course_content_dir)
+        self.exam_id = exam_id
         self.index = CourseIndex(settings.vector_db_path, settings.embed_model)
         self.evaluator = Evaluator(settings.evaluation_model)
         self.sessions = SessionStore(settings.session_db_path)
@@ -51,7 +57,7 @@ class AssessmentEngine:
         status = self.status()
         if not status.ready:
             raise RuntimeError(status.message)
-        session = self.sessions.create(self.assessment.course_id)
+        session = self.sessions.create(self.assessment.course_id, self.exam_id)
         question = self.assessment.questions[0]
         return {
             "session_id": session["id"],

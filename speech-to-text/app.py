@@ -4,9 +4,10 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse
 from faster_whisper import WhisperModel
+from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 APP_DIR = Path(__file__).resolve().parent
@@ -16,13 +17,20 @@ if str(ROOT_DIR) not in sys.path:
 
 from rag.analytics import AnalyticsStore
 from rag.config import Settings
-from rag.engine import AssessmentEngine
+from rag.faculty import (
+    FacultyAssessmentManager,
+    current_portal_user,
+    list_published_exams,
+    require_portal_student,
+    require_portal_user,
+)
 from rag.media import MediaGenerator
 
 RECORDINGS_DIR = Path(
     os.environ.get("RECORDINGS_DIR", APP_DIR / "recordings")
 ).resolve()
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+FACULTY_PORT = int(os.environ.get("PORT", "8001"))
 
 
 @asynccontextmanager
@@ -34,7 +42,7 @@ async def lifespan(app: FastAPI):
     )
     with app.state.analytics.run("application_start") as run:
         with run.stage("assessment_engine_initialization"):
-            app.state.engine = AssessmentEngine(settings)
+            app.state.manager = FacultyAssessmentManager(settings)
             app.state.media = MediaGenerator(settings)
         with run.stage("whisper_model_load"):
             app.state.whisper = WhisperModel(
@@ -43,7 +51,7 @@ async def lifespan(app: FastAPI):
                 compute_type=os.environ.get("WHISPER_COMPUTE_TYPE", "int8"),
             )
     yield
-    app.state.engine.close()
+    app.state.manager.close()
     app.state.analytics.close()
 
 
@@ -61,6 +69,10 @@ def transcribe_audio(model: WhisperModel, audio_path: Path) -> str:
 
 
 def add_media(response: dict, media: MediaGenerator, prompt_key: str) -> dict:
+    if response.get("completed"):
+        response["media_url"] = None
+        response["media_error"] = None
+        return response
     prompt = response.get(prompt_key, "")
     try:
         response["media_url"] = media.generate(prompt) if prompt else None
@@ -76,62 +88,92 @@ def add_media(response: dict, media: MediaGenerator, prompt_key: str) -> dict:
     return response
 
 
+def faculty_portal_url(request: Request, path: str = "/") -> str:
+    return f"{request.url.scheme}://{request.url.hostname}:{FACULTY_PORT}{path}"
+
+
 @app.get("/")
-def home():
+def home(request: Request):
+    user = current_portal_user(request)
+    if not user:
+        return RedirectResponse(faculty_portal_url(request, "/login"), status_code=303)
+    if user["role"] != "student":
+        return RedirectResponse(faculty_portal_url(request), status_code=303)
     return FileResponse(APP_DIR / "index.html")
 
 
 @app.get("/admin")
-def admin_page():
-    return FileResponse(APP_DIR / "admin.html")
+def admin_page(request: Request):
+    return RedirectResponse(
+        f"{request.url.scheme}://{request.url.hostname}:{FACULTY_PORT}/",
+        status_code=303,
+    )
 
 
 @app.get("/health")
 def health():
-    status = app.state.engine.status()
-    return {"status": "ok", "course_ready": status.ready}
+    try:
+        exams = list_published_exams()
+    except HTTPException:
+        exams = []
+    settings: Settings = app.state.settings
+    return {
+        "status": "ok",
+        "published_exams": len(exams),
+        "media_mode": settings.media_mode,
+        "avatar_enabled": settings.media_mode == "avatar",
+    }
 
 
 @app.get("/api/course/status")
-def course_status():
-    return app.state.engine.status()
+def course_status(_user: dict = Depends(require_portal_student)):
+    exams = list_published_exams()
+    return {"ready": bool(exams), "published_exams": len(exams),
+            "message": "Published exams are ready." if exams else "A faculty member must publish an exam first."}
 
 
 @app.post("/api/course/publish")
 def publish_course(x_admin_token: str | None = Header(default=None)):
     require_admin(x_admin_token, app.state.settings)
-    try:
-        with app.state.analytics.run("course_publish") as run:
-            with run.stage("course_ingestion_and_indexing"):
-                status = app.state.engine.publish_course()
-            run.add_metric("document_count", status.document_count)
-            run.add_metric("chunk_count", status.chunk_count)
-            return status
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    raise HTTPException(410, "Course indexing now happens from the faculty portal.")
 
 
 @app.get("/api/analytics/summary")
-def analytics_summary(x_admin_token: str | None = Header(default=None)):
-    require_admin(x_admin_token, app.state.settings)
+def analytics_summary(user: dict = Depends(require_portal_user)):
+    if user["role"] != "faculty":
+        raise HTTPException(status_code=403, detail="Faculty only")
     return app.state.analytics.summary()
 
 
 @app.get("/api/analytics/runs")
 def analytics_runs(
     limit: int = 50,
-    x_admin_token: str | None = Header(default=None),
+    user: dict = Depends(require_portal_user),
 ):
-    require_admin(x_admin_token, app.state.settings)
+    if user["role"] != "faculty":
+        raise HTTPException(status_code=403, detail="Faculty only")
     return {"runs": app.state.analytics.recent_runs(limit)}
 
 
+class StartSessionRequest(BaseModel):
+    exam_id: str
+
+
+@app.get("/api/exams")
+def published_exams(_user: dict = Depends(require_portal_student)):
+    return {"exams": list_published_exams()}
+
+
 @app.post("/api/sessions")
-def start_session():
+def start_session(body: StartSessionRequest, _user: dict = Depends(require_portal_student)):
+    engine = None
     try:
+        engine = app.state.manager.engine_for_exam(body.exam_id)
         with app.state.analytics.run("session_start") as run:
             with run.stage("session_creation"):
-                response = app.state.engine.start_session()
+                response = engine.start_session()
+            run.add_metric("exam_id", body.exam_id)
+            run.add_metric("course_id", engine.assessment.course_id)
             run.set_context(
                 session_id=response["session_id"],
                 question_id=response["question_id"],
@@ -140,14 +182,20 @@ def start_session():
                 return add_media(response, app.state.media, "prompt")
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Published exam not found") from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    finally:
+        if engine is not None:
+            engine.close()
 
 
 @app.post("/api/answers")
 async def submit_answer(
     session_id: str = Form(...),
     audio: UploadFile = File(...),  # noqa: B008 - FastAPI dependency marker
+    _user: dict = Depends(require_portal_student),
 ):
     settings: Settings = app.state.settings
     content_type = audio.content_type or ""
@@ -161,6 +209,7 @@ async def submit_answer(
         raise HTTPException(status_code=400, detail="Audio recording is empty")
 
     try:
+        engine = None
         with app.state.analytics.run(
             "assessment_turn", session_id=session_id
         ) as run:
@@ -173,8 +222,11 @@ async def submit_answer(
                 )
             run.add_metric("transcript_words", len(transcript.split()))
             with run.stage("assessment_engine"):
+                engine = app.state.manager.engine_for_session(session_id)
+                run.add_metric("exam_id", engine.exam_id)
+                run.add_metric("course_id", engine.assessment.course_id)
                 response = await run_in_threadpool(
-                    app.state.engine.submit_response, session_id, transcript
+                    engine.submit_response, session_id, transcript
                 )
             run.set_context(question_id=response["question_id"])
             with run.stage("examiner_media"):
@@ -191,6 +243,8 @@ async def submit_answer(
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     finally:
+        if engine is not None:
+            engine.close()
         if not settings.retain_audio:
             if "recording_path" in locals():
                 recording_path.unlink(missing_ok=True)

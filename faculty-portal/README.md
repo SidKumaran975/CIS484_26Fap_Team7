@@ -19,7 +19,7 @@ python app.py                 # open http://127.0.0.1:8001/login
 ## How faculty use it
 
 1. **Create a course** (code, name, term). Each faculty member sees only their own courses.
-2. **Upload documents to that course**: slides, notes, readings. They stay with the course and can be reused by every exam in it.
+2. **Upload documents or a folder to that course**: slides, notes, readings. Folder-relative paths are preserved. After each upload batch, the portal chunks the saved source files, embeds them with `nomic-embed-text`, and builds that course's local Qdrant index.
 3. **Build an exam**: pick the course, check which of its documents to draw from, set difficulty and question styles, and generate.
 4. **Review**: edit, regenerate or delete questions, approve every one, then publish. Drafts are saved and can be reopened from the course's Exams tab or the dashboard.
 
@@ -72,7 +72,7 @@ The badge in the header shows the state:
 
 | File | What it is |
 |---|---|
-| `app.py` | FastAPI backend: text extraction, chunking, Llama 3 prompts, SQLite storage |
+| `app.py` | FastAPI backend: uploads, semantic indexing, analytics, Llama 3 prompts, SQLite storage |
 | `auth.py` | Accounts, password hashing, sessions, lockout (standard library only) |
 | `manage_users.py` | Command line tool to add, import, reset and remove accounts |
 | `login.html` | Sign-in page for students and faculty |
@@ -82,7 +82,7 @@ The badge in the header shows the state:
 | `build_bundle.sh` | Run on an internet machine to download `wheels/` |
 | `faculty-exam-builder.service` | systemd unit to run it on boot |
 
-Not in Git (see `.gitignore`): `exam_builder.db` (accounts, sessions, material), `exams/`, `wheels/`, `credentials_*.csv`.
+Not in Git (see `.gitignore`): `exam_builder.db` (accounts, sessions, material), `exams/`, `wheels/`, `credentials_*.csv`, and the shared `runtime/` course files, Qdrant indexes, sessions, media, and analytics.
 
 ## Settings (environment variables)
 
@@ -92,6 +92,12 @@ Not in Git (see `.gitignore`): `exam_builder.db` (accounts, sessions, material),
 | `HOST` | `127.0.0.1` | Same as `pipeline.py`. Set `0.0.0.0` to let faculty on other machines connect (read *Known limits* first) |
 | `OLLAMA_URL` | `http://localhost:11434` | |
 | `OLLAMA_MODEL` | `llama3` | |
+| `RAG_EMBED_MODEL` | `nomic-embed-text` | Embedding model used for each course's Qdrant index |
+| `DB_PATH` | `exam_builder.db` | Shared account, course, material, and exam database |
+| `FACULTY_EXAMS_DIR` | `exams/` | Published exam JSON read by the student backend |
+| `FACULTY_COURSE_STORAGE` | `../runtime/faculty-courses` | Original uploaded course files |
+| `FACULTY_INDEX_STORAGE` | `../runtime/faculty-indexes` | One embedded Qdrant store per course |
+| `ANALYTICS_DB_PATH` | `../runtime/analytics.sqlite3` | Shared faculty and student operational analytics |
 | `NUM_CTX` | `8192` | Llama 3 8B's maximum. Ollama's default is smaller and would silently cut off material |
 | `LLM_TIMEOUT` | `300` | Seconds per question |
 | `CORS_ORIGINS` | empty | Only needed if `index.html` is hosted on a different server |
@@ -116,6 +122,7 @@ Not in Git (see `.gitignore`): `exam_builder.db` (accounts, sessions, material),
 | GET | `/api/courses/{id}/materials` | faculty page | the course's documents |
 | POST | `/api/courses/{id}/materials` | faculty page (multipart `file`) | upload one document to the course |
 | DELETE | `/api/courses/{id}/materials/{mid}` | faculty page | remove a document |
+| GET/POST | `/api/courses/{id}/index` | faculty page | inspect or rebuild that course's semantic index |
 | GET | `/api/courses/{id}/exams` | faculty page | the course's drafts and published exams |
 | POST | `/api/exams/generate` | faculty page | `{course_id, material_ids, ...}` → `exam_id`, draft questions. Empty `material_ids` = all course documents |
 | GET | `/api/exams/{id}/edit` | faculty page | reopen a draft or published exam with its settings |
@@ -124,6 +131,8 @@ Not in Git (see `.gitignore`): `exam_builder.db` (accounts, sessions, material),
 | POST | `/api/exams/{id}/publish` | faculty page | saved path |
 | GET | `/api/exams` | **student side** (any signed-in user) | published exams |
 | GET | `/api/exams/{id}` | **student side** (any signed-in user) | the exam; students get it without `key_points` |
+| GET | `/api/analytics/summary` | faculty page | aggregate indexing, generation, and assessment metrics |
+| GET | `/api/analytics/runs` | faculty page | recent instrumented operations |
 
 Everything except `/login` and `/api/login` requires a session. Faculty routes return `403` for students, and a course or exam that belongs to another faculty member returns `404`.
 
@@ -151,7 +160,7 @@ A published exam is also written to `faculty-portal/exams/<exam_id>.json`, so ot
 }
 ```
 
-This replaces the manual `Question List.docx` + `Parser` step: `questions[].question` is the list of strings that `Parser` produces today.
+This replaces the manual `Question List.docx` + `Parser` step. The student service loads this published exam, converts `key_points` into private rubric criteria, retrieves course evidence from the course-specific Qdrant index, evaluates each spoken response, and generates a follow-up when required criteria are missing.
 
 ## How generation works
 
@@ -203,9 +212,9 @@ Then create `/etc/systemd/system/ollama.service` from Ollama's Linux docs (`docs
 
 ## Known limits
 
-- **The student exam page itself isn't protected yet.** Students are *sent* to port 8000 after signing in, but `speech-to-text/app.py` doesn't check the session, so anyone who types the port-8000 address skips the login. Browsers share cookies across ports on the same host, so that server can verify the same `examportal_session` cookie with a few lines (`auth.current_user(request)`). That's a change to the speech-to-text code, so it's left to that owner.
+- **The two services must use the same hostname.** The student API validates the `examportal_session` cookie created by the faculty portal. Cookies are shared across ports on one hostname, but not across unrelated hostnames.
 - **Plain HTTP.** Passwords cross the network unencrypted. That's fine on `127.0.0.1`. With `HOST=0.0.0.0`, put the server behind HTTPS (a reverse proxy like nginx with a self-signed or campus certificate), then set `COOKIE_SECURE=1`.
 - **Lockout counters reset when the server restarts**, and they're per username, not per IP address.
 - **Scanned PDFs** have no text layer, so the upload fails with a clear message. They need OCR first.
-- **Retrieval is keyword-based**, not semantic. If questions miss the point, swap `pick_chunks()` in `app.py` for Ollama embeddings (`nomic-embed-text`).
+- **Question-authoring retrieval is keyword-based.** Llama 3 receives chunks chosen by keyword overlap when focus topics are provided. Student-answer evaluation uses the separate semantic Qdrant index built with `nomic-embed-text`.
 - **CPU only is slow:** roughly 20 to 60 seconds per question, competing with XTTS, Wav2Lip and Whisper if they share the machine.

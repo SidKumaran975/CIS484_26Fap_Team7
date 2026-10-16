@@ -1,227 +1,30 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Capstone Oral Assessment</title>
-    <style>
-        * { box-sizing: border-box; }
-        body {
-            margin: 0; padding: 2rem; min-height: 100vh;
-            font-family: system-ui, -apple-system, sans-serif;
-            background: #0f172a; color: #e2e8f0;
-        }
-        main { width: min(760px, 100%); margin: 0 auto; }
-        h1 { color: #38bdf8; margin-bottom: .4rem; }
-        .muted { color: #94a3b8; }
-        .card {
-            background: #1e293b; border: 1px solid #334155;
-            border-radius: 14px; padding: 1.25rem; margin: 1rem 0;
-        }
-        #question { font-size: 1.3rem; line-height: 1.55; }
-        #progress { color: #38bdf8; font-weight: 700; }
-        video { width: 100%; margin-top: 1rem; border-radius: 10px; }
-        video { max-height: 420px; background: #000; }
-        .controls { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1rem 0; }
-        button {
-            border: 0; border-radius: 9px; padding: .75rem 1.1rem;
-            font-size: 1rem; font-weight: 700; cursor: pointer;
-        }
-        button:disabled { opacity: .4; cursor: not-allowed; }
-        #begin { background: #38bdf8; color: #082f49; }
-        #play { background: #6366f1; color: white; }
-        #start { background: #22c55e; color: #052e16; }
-        #stop { background: #ef4444; color: white; }
-        #status { padding: .75rem; border-radius: 9px; background: #111827; }
-        #transcript { line-height: 1.55; }
-        .recording { outline: 2px solid #ef4444; }
-        .hidden { display: none; }
-        a { color: #38bdf8; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Exam Portal — Oral Assessment</title>
+  <style>
+    :root{--bg:#0f0d14;--panel:#17131f;--line:#352943;--bright:#8a4dcc;--deep:#450084;--gold:#cbb677;--text:#f6f2fb;--muted:#b8adc6;--success:#45c78a;--danger:#e4677e;--shadow:0 24px 70px rgba(0,0,0,.32)}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;color:var(--text);background:radial-gradient(900px 500px at 12% -10%,rgba(111,53,165,.24),transparent 65%),var(--bg)}.shell{min-height:100vh;display:grid;grid-template-columns:250px minmax(0,1fr)}.sidebar{padding:24px 16px;background:rgba(16,13,21,.92);border-right:1px solid var(--line);display:flex;flex-direction:column}.brand{display:flex;align-items:center;gap:11px;padding:0 8px 20px;border-bottom:1px solid var(--line)}.brand-mark{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;background:linear-gradient(145deg,var(--bright),var(--deep));box-shadow:0 8px 26px rgba(111,53,165,.35);font-weight:900}.brand strong{display:block;font-size:15px}.brand small{display:block;margin-top:2px;color:var(--muted);font-size:11px;font-weight:700}.nav-label{margin:25px 12px 8px;color:#8f839b;font-size:11px;letter-spacing:.1em;font-weight:800}.nav-item{padding:11px 12px;border:1px solid #352446;border-radius:12px;background:#21172c;color:#fff;font-size:14px;font-weight:750}.sidebar-note{margin-top:auto;padding:14px;border:1px solid var(--line);border-radius:14px;background:#17121e;color:var(--muted);font-size:12px;line-height:1.5}.sidebar-note strong{display:block;margin-bottom:4px;color:var(--text)}
+    main{width:min(1060px,100%);margin:0 auto;padding:34px clamp(20px,4vw,54px) 50px}.topbar{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:25px}.eyebrow{color:var(--gold);text-transform:uppercase;letter-spacing:.12em;font-size:11px;font-weight:850}h1{margin:7px 0 6px;font-size:clamp(27px,4vw,38px);letter-spacing:-.04em}.muted{color:var(--muted)}.session-pill{padding:9px 12px;border:1px solid var(--line);border-radius:999px;color:var(--muted);background:var(--panel);font-size:12px;white-space:nowrap}.card{background:linear-gradient(180deg,rgba(31,24,42,.96),rgba(23,19,31,.96));border:1px solid rgba(115,88,141,.28);border-radius:18px;box-shadow:var(--shadow);padding:22px;margin:16px 0}.exam-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(270px,.8fr);gap:18px}.stage{position:relative;overflow:hidden;padding:0;min-height:420px;display:flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#120e18,#231933)}.stage:before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 50% 10%,rgba(138,77,204,.25),transparent 52%);pointer-events:none}.stage-empty{position:relative;z-index:1;text-align:center;max-width:280px;color:var(--muted)}.avatar-orb{width:74px;height:74px;margin:0 auto 15px;border-radius:24px;display:grid;place-items:center;font-size:31px;background:linear-gradient(145deg,var(--bright),var(--deep));box-shadow:0 10px 40px rgba(111,53,165,.45)}video{position:relative;z-index:2;width:100%;height:100%;min-height:420px;object-fit:cover;background:#000}.prompt-card{display:flex;flex-direction:column}#progress{color:#d7c2ea;font-size:13px;font-weight:800}.question-label{margin-top:22px;color:var(--gold);text-transform:uppercase;letter-spacing:.1em;font-size:11px;font-weight:850}#question{margin:12px 0 0;font-size:1.19rem;line-height:1.62}.select-label{display:block;margin:27px 0 8px;color:var(--muted);font-size:12px;font-weight:750}select{width:100%;padding:12px;border-radius:12px;background:#120f18;color:var(--text);border:1px solid var(--line)}select:focus{outline:2px solid var(--bright);outline-offset:2px}.controls{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}button{border:1px solid transparent;border-radius:11px;padding:11px 15px;font-size:14px;font-weight:800;cursor:pointer;transition:.18s ease}button:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.07)}button:disabled{opacity:.42;cursor:not-allowed}#begin{background:linear-gradient(135deg,var(--bright),var(--deep));color:#fff;box-shadow:0 8px 22px rgba(111,53,165,.3)}#play{background:#241c30;border-color:var(--line);color:var(--text)}#start{background:var(--success);color:#072719}#stop{background:var(--danger);color:#fff}#status{display:flex;align-items:center;gap:10px;padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#120f18;color:var(--muted);font-size:14px}#status:before{content:"";width:8px;height:8px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 4px rgba(203,182,119,.12);flex:0 0 auto}#status.recording:before{background:var(--danger);box-shadow:0 0 0 5px rgba(228,103,126,.17);animation:pulse 1s infinite}#transcript{line-height:1.6;margin-bottom:0}#decision{margin-top:11px;color:#d7c2ea}.transcript-head{margin:0;font-size:14px}.hidden{display:none}@keyframes pulse{50%{transform:scale(1.35);opacity:.55}}@media(max-width:780px){.shell{display:block}.sidebar{display:none}main{padding:25px 18px}.topbar{display:block}.session-pill{display:inline-block;margin-top:12px}.exam-layout{grid-template-columns:1fr}.stage,video{min-height:300px}}
+    .nav-item.change-user{display:block;margin-top:8px;background:transparent;color:var(--muted);border-color:transparent;text-decoration:none}.nav-item.change-user:hover{background:#17121e;border-color:var(--line);color:var(--text)}
+  </style>
 </head>
 <body>
-<main>
-    <h1>Capstone Oral Assessment</h1>
-    <p class="muted">Answers are evaluated against the professor's rubric and published course materials.</p>
-
-    <section class="card">
-        <div id="progress">Course check</div>
-        <p id="question">Checking whether the course is ready…</p>
-        <video id="video" class="hidden" controls preload="auto"></video>
-    </section>
-
-    <div class="controls">
-        <button id="begin" disabled>Begin assessment</button>
-        <button id="play" disabled>Replay examiner video</button>
-        <button id="start" disabled>Record answer</button>
-        <button id="stop" disabled>Stop recording</button>
-    </div>
-
-    <div id="status">Loading…</div>
-
-    <section class="card">
-        <h2>Latest transcript</h2>
-        <p id="transcript" class="muted">No answer recorded yet.</p>
-        <p id="decision" class="muted"></p>
-    </section>
-</main>
-
+<div class="shell"><aside class="sidebar"><div class="brand"><span class="brand-mark">E</span><span><strong>Exam Portal</strong><small>ORAL ASSESSMENT</small></span></div><div class="nav-label">YOUR ASSESSMENT</div><div class="nav-item">◉ &nbsp; Live examiner</div><a id="changeUser" class="nav-item change-user" href="#">↪ &nbsp; Change user</a><div class="sidebar-note"><strong>Private and focused</strong>Your responses are transcribed and evaluated against the published course rubric.</div></aside>
+<main><header class="topbar"><div><div class="eyebrow">Student workspace</div><h1>Oral assessment</h1><p class="muted">Listen to your AI examiner, then respond naturally when recording becomes available.</p></div><div class="session-pill">● Secure exam session</div></header>
+<section class="exam-layout"><section class="card stage"><div id="stageEmpty" class="stage-empty"><div class="avatar-orb">◉</div><strong>Your AI examiner</strong><p>Choose an exam and begin. Babik will deliver each question live.</p></div><video id="video" class="hidden" playsinline preload="auto"></video></section><section class="card prompt-card"><div id="progress">Course check</div><div class="question-label">Examiner prompt</div><p id="question">Checking whether the course is ready…</p><label class="select-label" for="exam">Published exam</label><select id="exam" disabled><option>Loading exams…</option></select></section></section>
+<div class="controls"><button id="begin" disabled>Begin assessment</button><button id="play" disabled>Replay examiner</button><button id="start" disabled>Record answer</button><button id="stop" disabled>Stop recording</button></div><div id="status">Loading your assessment…</div>
+<section class="card"><h2 class="transcript-head">Latest transcript</h2><p id="transcript" class="muted">No answer recorded yet.</p><p id="decision"></p></section></main></div>
 <script>
-    const beginBtn = document.getElementById("begin");
-    const playBtn = document.getElementById("play");
-    const startBtn = document.getElementById("start");
-    const stopBtn = document.getElementById("stop");
-    const statusEl = document.getElementById("status");
-    const questionEl = document.getElementById("question");
-    const progressEl = document.getElementById("progress");
-    const transcriptEl = document.getElementById("transcript");
-    const decisionEl = document.getElementById("decision");
-    const videoEl = document.getElementById("video");
-
-    let sessionId = null;
-    let mediaUrl = null;
-    let recorder = null;
-    let stream = null;
-    let chunks = [];
-    let mimeType = "audio/webm";
-
-    async function api(url, options = {}) {
-        const response = await fetch(url, options);
-        if (!response.ok) {
-            let message = await response.text();
-            try { message = JSON.parse(message).detail || message; } catch (_) {}
-            throw new Error(message);
-        }
-        return response.json();
-    }
-
-    function setPrompt(data, key) {
-        questionEl.textContent = data[key];
-        progressEl.textContent = `Question ${data.question_number} of ${data.question_count}`;
-        mediaUrl = data.media_url;
-        videoEl.classList.add("hidden");
-        videoEl.removeAttribute("src");
-        if (!mediaUrl?.endsWith(".mp4")) throw new Error("Examiner video is unavailable");
-        videoEl.src = `${mediaUrl}?v=${Date.now()}`;
-        videoEl.classList.remove("hidden");
-        playBtn.disabled = false;
-        startBtn.disabled = true;
-    }
-
-    async function checkCourse() {
-        try {
-            const course = await api("/api/course/status");
-            if (course.ready) {
-                questionEl.textContent = `${course.title} is ready with ${course.question_count} questions and ${course.chunk_count} indexed course passages.`;
-                statusEl.textContent = "Ready to begin.";
-                beginBtn.disabled = false;
-            } else {
-                questionEl.textContent = course.message;
-                statusEl.innerHTML = 'The professor must publish course materials from the <a href="/admin">course administration page</a>.';
-            }
-        } catch (error) {
-            statusEl.textContent = `Startup error: ${error.message}`;
-        }
-    }
-
-    beginBtn.onclick = async () => {
-        beginBtn.disabled = true;
-        statusEl.textContent = "Preparing the first question…";
-        try {
-            const data = await api("/api/sessions", { method: "POST" });
-            sessionId = data.session_id;
-            setPrompt(data, "prompt");
-            await playQuestion();
-        } catch (error) {
-            statusEl.textContent = `Could not start: ${error.message}`;
-            beginBtn.disabled = false;
-        }
-    };
-
-    async function playQuestion() {
-        playBtn.disabled = true;
-        startBtn.disabled = true;
-        statusEl.textContent = "The examiner is asking the question…";
-        videoEl.currentTime = 0;
-        try {
-            await videoEl.play();
-        } catch (error) {
-            playBtn.disabled = false;
-            statusEl.textContent = "Examiner video is ready. Press Replay examiner video to begin.";
-        }
-    }
-
-    playBtn.onclick = playQuestion;
-
-    function questionFinished() {
-        statusEl.textContent = "Record your answer when ready.";
-        playBtn.disabled = false;
-        startBtn.disabled = false;
-    }
-    videoEl.onended = questionFinished;
-    videoEl.onerror = () => {
-        statusEl.textContent = "The examiner video could not be played. Regenerate the question or check the server logs.";
-        playBtn.disabled = false;
-        startBtn.disabled = true;
-    };
-
-    startBtn.onclick = async () => {
-        try {
-            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            chunks = [];
-            mimeType = MediaRecorder.isTypeSupported("audio/webm")
-                ? "audio/webm" : "audio/mp4";
-            recorder = new MediaRecorder(stream, { mimeType });
-            recorder.ondataavailable = event => {
-                if (event.data.size) chunks.push(event.data);
-            };
-            recorder.onstop = submitRecording;
-            recorder.start();
-            startBtn.disabled = true;
-            playBtn.disabled = true;
-            stopBtn.disabled = false;
-            statusEl.textContent = "Recording…";
-            statusEl.classList.add("recording");
-        } catch (error) {
-            statusEl.textContent = `Microphone error: ${error.message}`;
-        }
-    };
-
-    stopBtn.onclick = () => {
-        stopBtn.disabled = true;
-        recorder.stop();
-    };
-
-    async function submitRecording() {
-        stream.getTracks().forEach(track => track.stop());
-        statusEl.classList.remove("recording");
-        statusEl.textContent = "Transcribing, retrieving, evaluating, and preparing the examiner…";
-        const blob = new Blob(chunks, { type: mimeType });
-        const form = new FormData();
-        form.append("session_id", sessionId);
-        form.append("audio", blob, mimeType === "audio/webm" ? "answer.webm" : "answer.m4a");
-        try {
-            const data = await api("/api/answers", { method: "POST", body: form });
-            transcriptEl.textContent = data.transcript || "No speech detected.";
-            decisionEl.textContent = `Decision: ${data.action.replace("_", " ")}`;
-            if (data.completed) {
-                progressEl.textContent = "Assessment complete";
-                questionEl.textContent = "Thank you. You have completed the assessment.";
-                statusEl.textContent = "Complete.";
-                playBtn.disabled = true;
-                startBtn.disabled = true;
-                return;
-            }
-            setPrompt(data, "next_prompt");
-            await playQuestion();
-        } catch (error) {
-            statusEl.textContent = `Answer error: ${error.message}`;
-            startBtn.disabled = error.message.toLowerCase().includes("video");
-            playBtn.disabled = false;
-        }
-    }
-
-    checkCourse();
-</script>
-</body>
-</html>
+const beginBtn=document.getElementById("begin"),playBtn=document.getElementById("play"),startBtn=document.getElementById("start"),stopBtn=document.getElementById("stop"),statusEl=document.getElementById("status"),questionEl=document.getElementById("question"),progressEl=document.getElementById("progress"),transcriptEl=document.getElementById("transcript"),decisionEl=document.getElementById("decision"),videoEl=document.getElementById("video"),examEl=document.getElementById("exam"),stageEmpty=document.getElementById("stageEmpty");let sessionId=null,mediaUrl=null,recorder=null,stream=null,chunks=[],mimeType="audio/webm";
+document.getElementById("changeUser").href=`${location.protocol}//${location.hostname}:8001/login`;
+async function api(url,options={}){const response=await fetch(url,options);if(response.status===401){location.href=`${location.protocol}//${location.hostname}:8001/login`;throw new Error("Sign in required")}if(response.status===403){location.href=`${location.protocol}//${location.hostname}:8001/`;throw new Error("Student account required")}if(!response.ok){let message=await response.text();try{message=JSON.parse(message).detail||message}catch(_){}throw new Error(message)}return response.json()}
+function setPrompt(data,key){questionEl.textContent=data[key];progressEl.textContent=`Question ${data.question_number} of ${data.question_count}`;mediaUrl=data.media_url;videoEl.classList.add("hidden");videoEl.removeAttribute("src");stageEmpty.classList.toggle("hidden",Boolean(mediaUrl));if(!mediaUrl){playBtn.disabled=true;startBtn.disabled=true;statusEl.textContent="The examiner video is unavailable. This live assessment cannot continue until Babik is ready.";return false}videoEl.src=`${mediaUrl}?v=${Date.now()}`;videoEl.classList.remove("hidden");playBtn.disabled=false;startBtn.disabled=true;return true}
+async function checkCourse(){try{const data=await api("/api/exams");if(data.exams.length){examEl.replaceChildren(...data.exams.map(exam=>{const option=document.createElement("option");option.value=exam.exam_id;option.textContent=`${exam.course}: ${exam.title}${exam.term?` (${exam.term})`:""}`;return option}));examEl.disabled=false;questionEl.textContent="Choose a published exam, then begin when you are ready.";statusEl.textContent="Select an exam to meet your AI examiner.";beginBtn.disabled=false}else{examEl.innerHTML="<option>No published exams</option>";questionEl.textContent="No published exams are available.";statusEl.textContent="A faculty member must publish an exam first."}}catch(error){statusEl.textContent=`Startup error: ${error.message}`}}
+beginBtn.onclick=async()=>{beginBtn.disabled=true;statusEl.textContent="Babik is preparing the first question…";try{const data=await api("/api/sessions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({exam_id:examEl.value})});sessionId=data.session_id;examEl.disabled=true;if(setPrompt(data,"prompt"))await playQuestion()}catch(error){statusEl.textContent=`Could not start: ${error.message}`;beginBtn.disabled=false}};
+async function playQuestion(){playBtn.disabled=true;startBtn.disabled=true;statusEl.textContent="Your AI examiner is asking the question…";videoEl.currentTime=0;try{await videoEl.play()}catch(error){playBtn.disabled=false;statusEl.textContent="Examiner video is ready. Select Replay examiner to begin."}}playBtn.onclick=playQuestion;function questionFinished(){statusEl.textContent="Record your answer when you are ready.";playBtn.disabled=false;startBtn.disabled=false}videoEl.onended=questionFinished;videoEl.onerror=()=>{stageEmpty.classList.remove("hidden");statusEl.textContent="The examiner video could not be played. Check the avatar server setup.";playBtn.disabled=false;startBtn.disabled=true};
+startBtn.onclick=async()=>{try{stream=await navigator.mediaDevices.getUserMedia({audio:true});chunks=[];mimeType=MediaRecorder.isTypeSupported("audio/webm")?"audio/webm":"audio/mp4";recorder=new MediaRecorder(stream,{mimeType});recorder.ondataavailable=event=>{if(event.data.size)chunks.push(event.data)};recorder.onstop=submitRecording;recorder.start();startBtn.disabled=true;playBtn.disabled=true;stopBtn.disabled=false;statusEl.textContent="Recording your answer…";statusEl.classList.add("recording")}catch(error){statusEl.textContent=`Microphone error: ${error.message}`}};stopBtn.onclick=()=>{stopBtn.disabled=true;recorder.stop()};async function submitRecording(){stream.getTracks().forEach(track=>track.stop());statusEl.classList.remove("recording");statusEl.textContent="Transcribing, evaluating, and preparing Babik’s response…";const blob=new Blob(chunks,{type:mimeType}),form=new FormData();form.append("session_id",sessionId);form.append("audio",blob,mimeType==="audio/webm"?"answer.webm":"answer.m4a");try{const data=await api("/api/answers",{method:"POST",body:form});transcriptEl.textContent=data.transcript||"No speech detected.";decisionEl.textContent=`Decision: ${data.action.replace("_"," ")}`;if(data.completed){progressEl.textContent="Assessment complete";questionEl.textContent="Thank you. You have completed the assessment.";statusEl.textContent="Complete.";playBtn.disabled=true;startBtn.disabled=true;return}if(setPrompt(data,"next_prompt"))await playQuestion()}catch(error){statusEl.textContent=`Answer error: ${error.message}`;startBtn.disabled=error.message.toLowerCase().includes("video");playBtn.disabled=false}}
+checkCourse();
+</script></body></html>

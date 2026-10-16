@@ -46,6 +46,7 @@ SCRYPT_N, SCRYPT_R, SCRYPT_P = 2 ** 14, 8, 1
 def _db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 

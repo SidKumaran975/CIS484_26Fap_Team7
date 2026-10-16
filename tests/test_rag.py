@@ -9,9 +9,11 @@ from rag.course import load_assessment
 from rag.engine import AssessmentEngine
 from rag.evaluator import choose_action
 from rag.extractors import extract_file
+from rag.faculty import assessment_from_exam
 from rag.index import CourseIndex, chunk_text
 from rag.media import MediaGenerator
 from rag.schemas import Citation, CriterionResult, Evaluation
+from rag.sessions import SessionStore
 
 ROOT = Path(__file__).resolve().parent.parent
 COURSE_DIR = ROOT / "tests" / "fixtures" / "course"
@@ -22,6 +24,31 @@ def fake_embeddings(texts: list[str]) -> list[list[float]]:
 
 
 class CourseTests(unittest.TestCase):
+    def test_published_exam_becomes_assessment_rubric(self):
+        assessment = assessment_from_exam(
+            {
+                "course_id": "crs_test",
+                "title": "Midterm",
+                "questions": [
+                    {
+                        "id": "q_test",
+                        "question": "Explain atomicity.",
+                        "key_points": ["All operations commit or none do", "Rollback on failure"],
+                    }
+                ],
+            }
+        )
+        self.assertEqual(assessment.course_id, "crs_test")
+        self.assertEqual(assessment.questions[0].prompt, "Explain atomicity.")
+        self.assertEqual(len(assessment.questions[0].rubric), 2)
+        self.assertEqual(assessment.questions[0].rubric[0].description, "All operations commit or none do")
+
+    def test_session_records_published_exam(self):
+        with TemporaryDirectory() as directory:
+            store = SessionStore(Path(directory) / "sessions.sqlite3")
+            session = store.create("crs_test", "exam_0123456789")
+            self.assertEqual(session["exam_id"], "exam_0123456789")
+
     def test_analytics_records_per_run_metrics(self):
         with TemporaryDirectory() as directory:
             store = AnalyticsStore(Path(directory) / "analytics.sqlite3", 30.0)

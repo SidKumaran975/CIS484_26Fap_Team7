@@ -36,15 +36,18 @@ mkdir -p \
     "${REPO_DIR}/Wav2Lip/checkpoints" \
     "${REPO_DIR}/Wav2Lip/results" \
     "${REPO_DIR}/Wav2Lip/temp" \
-    "${REPO_DIR}/speech-to-text/recordings"
+    "${REPO_DIR}/speech-to-text/recordings" \
+    "${REPO_DIR}/runtime/faculty-courses" \
+    "${REPO_DIR}/runtime/faculty-indexes"
 
 echo
 echo "Python environments are installed."
 echo "Next steps:"
 echo "  1. Install Ollama and pull qwen2.5:7b and nomic-embed-text"
 echo "  2. Copy the two Wav2Lip weights and the private Sid.wav file."
-echo "  3. Add professor materials and assessment.yaml to the course folder."
-echo "  4. Follow deployment/README.md to install the service and Nginx config."
+echo "  3. Create the first faculty account with faculty-portal/manage_users.py."
+echo "  4. Upload course folders and publish exams from the faculty portal."
+echo "  5. Follow deployment/README.md to install the service and Nginx config."
 
 if command -v nvidia-smi >/dev/null 2>&1; then
     nvidia-smi

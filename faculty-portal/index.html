@@ -235,6 +235,7 @@ summary{cursor:pointer;color:var(--muted)}
     <nav class="nav" aria-label="Main">
       <button data-nav="dashboard" class="active"><span class="ico">⌂</span><span class="label">Dashboard</span></button>
       <button data-nav="builder"><span class="ico">✦</span><span class="label">Exam Builder</span></button>
+      <button data-nav="analytics"><span class="ico">▥</span><span class="label">Analytics</span></button>
     </nav>
     <div class="nav-heading"><span>Your courses</span><button id="sideAddCourse" title="Add course" aria-label="Add course">+</button></div>
     <nav class="nav" id="courseNav" style="margin-top:4px" aria-label="Courses"></nav>
@@ -303,6 +304,9 @@ summary{cursor:pointer;color:var(--muted)}
             <div class="sub">PDF, DOCX, PPTX, TXT, MD · up to 25 MB each · drag and drop or click</div>
           </div>
           <input id="courseFile" type="file" multiple accept=".pdf,.docx,.pptx,.txt,.md" hidden>
+          <input id="courseFolder" type="file" webkitdirectory multiple hidden>
+          <button class="btn secondary small" id="courseFolderBtn" style="margin-top:10px">Upload an entire folder</button>
+          <button class="btn ghost small" id="reindexCourseBtn" style="margin-top:10px">Rebuild semantic index</button>
           <div id="courseDocs" style="margin-top:8px"></div>
         </div>
       </div>
@@ -404,6 +408,24 @@ summary{cursor:pointer;color:var(--muted)}
             </div>
           </div>
         </aside>
+      </div>
+    </section>
+
+    <!-- ================= ANALYTICS ================= -->
+    <section id="view-analytics" class="view hidden">
+      <div class="topbar">
+        <div><h1>System Analytics</h1><p>Operational performance, model usage, and estimated energy. Student answer text is not copied here.</p></div>
+        <button class="btn secondary" id="refreshAnalyticsBtn">Refresh</button>
+      </div>
+      <div class="grid cols-4">
+        <div class="card stat"><div class="kicker">Runs</div><div class="value" id="analyticsRuns">–</div></div>
+        <div class="card stat"><div class="kicker">Success Rate</div><div class="value" id="analyticsSuccess">–</div></div>
+        <div class="card stat"><div class="kicker">Average Latency</div><div class="value" id="analyticsLatency">–</div></div>
+        <div class="card stat"><div class="kicker">Estimated Energy</div><div class="value" id="analyticsEnergy">–</div></div>
+      </div>
+      <div class="card panel section">
+        <div class="section-head"><div><h2>Recent Runs</h2><p id="analyticsStatus">Loading analytics…</p></div></div>
+        <div id="analyticsTable" class="list-card"></div>
       </div>
     </section>
   </main>
@@ -510,14 +532,18 @@ const api = MOCK_MODE ? null : {
   updateCourse: (id, b) => call(`/api/courses/${id}`, json("PUT", b)),
   deleteCourse: id => call(`/api/courses/${id}`, { method: "DELETE" }),
   materials: cid => call(`/api/courses/${cid}/materials`),
-  upload: (cid, file) => { const fd = new FormData(); fd.append("file", file); return call(`/api/courses/${cid}/materials`, { method: "POST", body: fd }); },
+  upload: (cid, file) => { const fd = new FormData(); fd.append("file", file); fd.append("relative_path", file.webkitRelativePath || file.name); return call(`/api/courses/${cid}/materials`, { method: "POST", body: fd }); },
   deleteMaterial: (cid, mid) => call(`/api/courses/${cid}/materials/${mid}`, { method: "DELETE" }),
+  indexStatus: cid => call(`/api/courses/${cid}/index`),
+  indexCourse: cid => call(`/api/courses/${cid}/index`, { method: "POST" }),
   exams: cid => call(`/api/courses/${cid}/exams`),
   openExam: eid => call(`/api/exams/${eid}/edit`),
   generate: p => call("/api/exams/generate", json("POST", p)),
   regenerate: (eid, qid, p) => call(`/api/exams/${eid}/regenerate`, json("POST", { question_id: qid, ...p })),
   saveDraft: (eid, p) => call(`/api/exams/${eid}`, json("PUT", p)),
   publish: (eid, p) => call(`/api/exams/${eid}/publish`, json("POST", p)),
+  analyticsSummary: () => call("/api/analytics/summary"),
+  analyticsRuns: () => call("/api/analytics/runs?limit=25"),
 };
 
 /* ============ DEMO BACKEND (only when MOCK_MODE) ============ */
@@ -582,6 +608,8 @@ const mockApi = (() => {
       const m = { material_id: "mat_" + hex(), course_id: cid, filename: file.name, size: file.size, chunks: Math.max(1, Math.ceil(file.size / 6000)), uploaded_at: now() };
       db.materials.push(m); return m; },
     deleteMaterial: async (cid, mid) => { await sleep(200); db.materials = db.materials.filter(m => m.material_id !== mid); return { ok: true }; },
+    indexStatus: async cid => ({ ready: db.materials.some(m => m.course_id === cid), document_count: db.materials.filter(m => m.course_id === cid).length, chunk_count: 29, indexed_at: now() }),
+    indexCourse: async cid => { await sleep(800); return { ready: true, document_count: db.materials.filter(m => m.course_id === cid).length, chunk_count: 29, indexed_at: now() }; },
     exams: async cid => { await sleep(120); return db.exams.filter(e => e.course_id === cid)
       .map(e => ({ exam_id: e.exam_id, title: e.title || "Untitled exam", status: e.status, created_at: e.created_at, published_at: e.published_at,
         question_count: e.questions.length, seconds_per_question: e.settings.seconds_per_question }))
@@ -598,6 +626,8 @@ const mockApi = (() => {
     publish: async (eid, p) => { await sleep(600); const e = db.exams.find(e => e.exam_id === eid);
       Object.assign(e, { title: p.title, settings: { ...p, questions: undefined }, questions: p.questions, status: "published", published_at: now() });
       return { ok: true, exam_id: eid, path: `exams/${eid}.json` }; },
+    analyticsSummary: async () => ({ run_count: 8, success_rate: .875, average_duration_ms: 4200, energy_wh_est: .28 }),
+    analyticsRuns: async () => ({ runs: [{ started_at: now(), run_type: "course_index", success: true, duration_ms: 4200, input_tokens: 1200, output_tokens: 0, stages: [{ name: "course_extraction_and_embedding", duration_ms: 4100 }] }] }),
   };
 })();
 const API = MOCK_MODE ? mockApi : api;
@@ -620,6 +650,7 @@ function show(view) {
 }
 document.querySelectorAll("[data-nav]").forEach(b => b.addEventListener("click", () => {
   if (b.dataset.nav === "dashboard") { renderDashboard(); show("dashboard"); }
+  else if (b.dataset.nav === "analytics") { show("analytics"); loadAnalytics(); }
   else { show("builder"); if (!$("courseSel").value && state.courses.length) newExam(null, { keep: true }); }
 }));
 document.addEventListener("click", e => {
@@ -734,10 +765,19 @@ async function openCourse(id) {
   const c = courseById(id); if (!c) return;
   $("courseTitle").innerHTML = `${esc(c.code)} <span class="muted">/ ${esc(c.name)}</span>`;
   $("courseSub").textContent = [c.term, plural(c.documents, "document"), plural(c.exams, "exam")].filter(Boolean).join(" • ");
-  $("docsHint").textContent = `Exam questions for ${c.code} are generated only from these files.`;
+  $("docsHint").textContent = `Checking the ${c.code} semantic index…`;
   $("courseDropLabel").textContent = `Upload documents to ${c.code}`;
   courseTab("documents"); show("course");
-  await Promise.all([renderCourseDocs(), renderCourseExams()]);
+  await Promise.all([renderCourseDocs(), renderCourseExams(), renderIndexStatus(id)]);
+}
+async function renderIndexStatus(cid) {
+  try {
+    const s = await API.indexStatus(cid);
+    if (cid !== state.courseId) return;
+    $("docsHint").textContent = s.ready
+      ? `${s.document_count} documents embedded as ${s.chunk_count} searchable passages. Indexed ${fmtDate(s.indexed_at)}.`
+      : "Upload course material to build its semantic search index.";
+  } catch (e) { if (cid === state.courseId) $("docsHint").textContent = e.message; }
 }
 function courseTab(tab) {
   document.querySelectorAll("[data-tab]").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
@@ -751,7 +791,7 @@ function docRow(m, { checkbox = false, checked = true } = {}) {
   return `<div class="doc-row">
     ${checkbox ? `<input type="checkbox" data-mid="${esc(m.material_id)}" ${checked ? "checked" : ""} aria-label="Use ${esc(m.filename)}">` : ""}
     <div class="doc-icon">${docLabel(m.filename)}</div>
-    <div class="grow"><strong>${esc(m.filename)}</strong><div class="sub">${[fmtSize(m.size), plural(m.chunks, "section"), "Uploaded " + fmtDate(m.uploaded_at)].filter(Boolean).join(" • ")}</div></div>
+    <div class="grow"><strong>${esc(m.relative_path || m.filename)}</strong><div class="sub">${[fmtSize(m.size), plural(m.chunks, "section"), "Uploaded " + fmtDate(m.uploaded_at)].filter(Boolean).join(" • ")}</div></div>
     <span class="badge green">Ready</span>
     ${checkbox ? "" : `<button class="iconbtn" data-del-mid="${esc(m.material_id)}" data-name="${esc(m.filename)}" title="Delete document" aria-label="Delete ${esc(m.filename)}">×</button>`}
   </div>`;
@@ -776,7 +816,13 @@ async function renderCourseDocs() {
 function wireDocRowButtons(box, cid) {
   box.querySelectorAll("[data-del-mid]").forEach(b => b.onclick = async () => {
     if (!await confirmAction("Delete document?", `${b.dataset.name} will be removed from ${courseById(cid)?.code}. Existing exams keep their questions.`)) return;
-    try { await API.deleteMaterial(cid, b.dataset.delMid); toast("Document deleted"); await afterDocsChanged(cid); }
+    try {
+      await API.deleteMaterial(cid, b.dataset.delMid);
+      toast("Document deleted. Rebuilding semantic index…");
+      const docs = await API.materials(cid);
+      if (docs.length) await API.indexCourse(cid);
+      await afterDocsChanged(cid); await renderIndexStatus(cid);
+    }
     catch (e) { toast(e.message); }
   });
   box.querySelectorAll("[data-dismiss]").forEach(b => b.onclick = () => {
@@ -794,20 +840,26 @@ let uploadKey = 1;
 async function uploadFiles(cid, fileList) {
   if (!cid) return toast("Pick a course first.");
   const list = (uploadsByCourse[cid] = uploadsByCourse[cid] || []);
-  const jobs = [];
+  const jobs = []; let uploaded = 0;
   for (const f of fileList) {
     const u = { key: uploadKey++, name: f.name, size: f.size, status: "uploading", error: null };
     if (!ALLOWED.includes(extOf(f.name))) { u.status = "error"; u.error = "Unsupported file type"; }
     else if (f.size > MAX_MB * 1048576) { u.status = "error"; u.error = `Over ${MAX_MB} MB`; }
     list.push(u);
-    if (u.status === "uploading") jobs.push(API.upload(cid, f).then(() => { list.splice(list.indexOf(u), 1); })
+    if (u.status === "uploading") jobs.push(API.upload(cid, f).then(() => { uploaded++; list.splice(list.indexOf(u), 1); })
       .catch(e => { u.status = "error"; u.error = e.message; }).finally(() => afterDocsChanged(cid, false)));
   }
   await afterDocsChanged(cid, false);
   await Promise.all(jobs);
-  const ok = jobs.length - list.filter(u => u.status === "error").length;
   await afterDocsChanged(cid);
-  if (jobs.length) toast(ok > 0 ? `${plural(ok, "document")} added to ${courseById(cid)?.code}` : "Upload failed. See the error next to the file.");
+  if (uploaded) {
+    toast(`${plural(uploaded, "document")} uploaded. Building semantic index…`);
+    try {
+      const indexed = await API.indexCourse(cid);
+      toast(`${plural(indexed.document_count, "document")} indexed as ${plural(indexed.chunk_count, "passage")}`);
+      await renderIndexStatus(cid);
+    } catch (e) { toast(`Files saved, but indexing failed: ${e.message}`); }
+  } else if (jobs.length) toast("Upload failed. See the error next to the file.");
 }
 function wireDropZone(zone, input, getCourse) {
   zone.addEventListener("click", () => input.click());
@@ -819,6 +871,15 @@ function wireDropZone(zone, input, getCourse) {
 }
 wireDropZone($("courseDrop"), $("courseFile"), () => state.courseId);
 wireDropZone($("builderDrop"), $("builderFile"), () => $("courseSel").value);
+$("courseFolderBtn").onclick = () => $("courseFolder").click();
+$("courseFolder").onchange = () => { const files = [...$("courseFolder").files]; $("courseFolder").value = ""; uploadFiles(state.courseId, files); };
+$("reindexCourseBtn").onclick = async () => {
+  const cid = state.courseId; if (!cid) return;
+  $("reindexCourseBtn").disabled = true; toast("Building semantic index…");
+  try { const s = await API.indexCourse(cid); toast(`${plural(s.document_count, "document")} indexed as ${plural(s.chunk_count, "passage")}`); await renderIndexStatus(cid); }
+  catch (e) { toast(`Indexing failed: ${e.message}`); }
+  finally { $("reindexCourseBtn").disabled = false; }
+};
 
 async function renderCourseExams() {
   const cid = state.courseId; const exams = await API.exams(cid);
@@ -1038,6 +1099,31 @@ async function publish() {
 }
 $("publishBtn").onclick = publish; $("publishTopBtn").onclick = publish;
 
+/* ============ ANALYTICS ============ */
+async function loadAnalytics() {
+  const btn = $("refreshAnalyticsBtn"); btn.disabled = true;
+  $("analyticsStatus").textContent = "Loading analytics…";
+  try {
+    const [summary, recent] = await Promise.all([API.analyticsSummary(), API.analyticsRuns()]);
+    $("analyticsRuns").textContent = Number(summary.run_count || 0).toLocaleString();
+    $("analyticsSuccess").textContent = `${(Number(summary.success_rate || 0) * 100).toFixed(1)}%`;
+    $("analyticsLatency").textContent = `${(Number(summary.average_duration_ms || 0) / 1000).toFixed(2)} s`;
+    $("analyticsEnergy").textContent = `${Number(summary.energy_wh_est || 0).toFixed(4)} Wh`;
+    $("analyticsTable").innerHTML = recent.runs.length
+      ? `<div class="table-row head"><span>Operation</span><span>Result</span><span>Latency</span><span>Tokens</span></div>` + recent.runs.map(r => `
+        <div class="table-row">
+          <div><strong>${esc(String(r.run_type).replaceAll("_", " "))}</strong><div class="sub">${esc(new Date(r.started_at).toLocaleString())}</div></div>
+          <div>${r.success ? `<span class="badge green">Success</span>` : `<span class="badge red">Failed</span>`}</div>
+          <div>${(Number(r.duration_ms || 0) / 1000).toFixed(2)} s</div>
+          <div>${Number(r.input_tokens || 0).toLocaleString()} / ${Number(r.output_tokens || 0).toLocaleString()}</div>
+        </div>`).join("")
+      : `<div class="empty"><strong>No analytics yet</strong><p>Indexing, generation, and student assessment runs will appear here.</p></div>`;
+    $("analyticsStatus").textContent = `Showing ${recent.runs.length} recent runs.`;
+  } catch (e) { $("analyticsStatus").textContent = `Analytics error: ${e.message}`; }
+  finally { btn.disabled = false; }
+}
+$("refreshAnalyticsBtn").onclick = loadAnalytics;
+
 /* ============ USER + MODEL STATUS ============ */
 $("logoutBtn").onclick = async () => {
   if (MOCK_MODE) { if (window.parent !== window) parent.postMessage("signout", "*"); else location.href = "login.html"; return; }
@@ -1057,8 +1143,10 @@ async function loadHealth() {
   try {
     const h = await API.health();
     dot.className = "dot " + (h.ollama ? "ok" : "bad");
-    label.textContent = h.ollama ? `${h.model} ready` : "Ollama not reachable";
-    $("modelChip").title = h.ollama ? `Ollama at ${h.ollama_url}` : `Start Ollama (ollama serve) and pull ${h.model}`;
+    label.textContent = h.ollama ? "AI models ready" : "AI model setup needed";
+    $("modelChip").title = h.ollama
+      ? `${h.model} and ${h.embedding_model} ready at ${h.ollama_url}`
+      : `Start Ollama and pull ${h.model} plus ${h.embedding_model}`;
   } catch { dot.className = "dot bad"; label.textContent = "Server offline"; }
 }
 
