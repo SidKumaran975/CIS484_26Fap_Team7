@@ -1,0 +1,27 @@
+# systemd service: starts the app on boot and restarts it if it crashes.
+# Install:
+#   1. Edit User= and the two /opt/cis484_26fap_team7 paths below to match where you unzipped it.
+#   2. sudo cp faculty-exam-builder.service /etc/systemd/system/
+#   3. sudo systemctl daemon-reload
+#   4. sudo systemctl enable --now faculty-exam-builder
+# Logs:  journalctl -u faculty-exam-builder -f
+
+[Unit]
+Description=Faculty Exam Builder (oral exam question generator)
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+User=examapp
+WorkingDirectory=/opt/cis484_26fap_team7/faculty-portal
+ExecStart=/opt/cis484_26fap_team7/faculty-portal/venv/bin/python app.py
+Environment=HOST=0.0.0.0
+Environment=PORT=8001
+Environment=OLLAMA_URL=http://localhost:11434
+Environment=OLLAMA_MODEL=llama3
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

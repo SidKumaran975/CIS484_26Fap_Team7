@@ -17,6 +17,8 @@ This repository contains a local AI oral-assessment pipeline:
 - `speech-to-text/` contains the FastAPI server and browser interface.
 - `rag/` contains course ingestion, retrieval, evaluation, and session logic.
 - `course-materials/` is the professor-facing development folder.
+- `faculty-portal/` contains the faculty upload and question-generation UI
+  (port 8001). See `faculty-portal/README.md`.
 
 ## Local-only files
 
