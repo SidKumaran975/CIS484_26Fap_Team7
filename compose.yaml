@@ -1,0 +1,79 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  app:
+    image: capstone-app:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      STT_HOST: 0.0.0.0
+      PORT: 8001
+      STT_PORT: 8000
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
+      EVALUATION_MODEL: ${EVALUATION_MODEL:-qwen2.5:7b}
+      RAG_EMBED_MODEL: ${RAG_EMBED_MODEL:-nomic-embed-text}
+      WHISPER_MODEL: ${WHISPER_MODEL:-base.en}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+      MEDIA_MODE: avatar
+      MEDIA_GENERATION_TIMEOUT: ${MEDIA_GENERATION_TIMEOUT:-900}
+      WAV2LIP_RESIZE_FACTOR: ${WAV2LIP_RESIZE_FACTOR:-3}
+      COQUI_TOS_AGREED: ${COQUI_TOS_AGREED:-0}
+      DB_PATH: /data/exam_builder.db
+      FACULTY_EXAMS_DIR: /data/exams
+      FACULTY_COURSE_STORAGE: /data/faculty-courses
+      FACULTY_INDEX_STORAGE: /data/faculty-indexes
+      ANALYTICS_DB_PATH: /data/analytics.sqlite3
+      SESSION_DB_PATH: /data/sessions.sqlite3
+      MEDIA_DIR: /data/media
+      RECORDINGS_DIR: /data/recordings
+      RETAIN_AUDIO: ${RETAIN_AUDIO:-false}
+      COOKIE_SECURE: ${COOKIE_SECURE:-0}
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    volumes:
+      - capstone-data:/data
+      - tts-models:/home/capstone/.local/share/tts
+      - type: bind
+        source: ./text-to-speech-model/Sid.wav
+        target: /app/text-to-speech-model/Sid.wav
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./Wav2Lip/checkpoints/wav2lip.pth
+        target: /app/Wav2Lip/checkpoints/wav2lip.pth
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./Wav2Lip/face_detection/detection/sfd/s3fd.pth
+        target: /app/Wav2Lip/face_detection/detection/sfd/s3fd.pth
+        read_only: true
+        bind:
+          create_host_path: false
+
+volumes:
+  capstone-data:
+  ollama-data:
+  tts-models:

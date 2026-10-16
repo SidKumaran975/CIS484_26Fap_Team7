@@ -21,6 +21,9 @@ This repository contains a local AI oral-assessment pipeline:
   (port 8001). See `faculty-portal/README.md`.
 - `runtime/faculty-courses/` and `runtime/faculty-indexes/` hold ignored course uploads and per-course Qdrant data.
 
+For the portable Ubuntu/Docker deployment, follow
+[`deployment/CONTAINERS.md`](deployment/CONTAINERS.md).
+
 ## Local-only files
 
 Generated recordings, transcripts, audio, video, Python environments, and
