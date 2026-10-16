@@ -1,0 +1,10 @@
+# Runtime data: course material text and generated exams. Never commit.
+exam_builder.db
+exam_builder.db-*
+exams/
+
+# Offline install bundle (~45 MB of binaries). Rebuild with build_bundle.sh.
+wheels/
+
+# Plaintext passwords from `manage_users.py import`. Hand out, then delete.
+credentials_*.csv
