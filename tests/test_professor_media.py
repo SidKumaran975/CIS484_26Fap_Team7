@@ -49,6 +49,7 @@ class ProfessorMediaTests(unittest.TestCase):
             "FACULTY_INDEX_STORAGE": str(cls.root / "indexes"),
             "FACULTY_MEDIA_STORAGE": str(cls.root / "profiles"),
             "ANALYTICS_DB_PATH": str(cls.root / "analytics.db"),
+            "SESSION_DB_PATH": str(cls.root / "sessions.db"),
         })
         cls.environment.start()
         sys.path.insert(0, str(ROOT / "faculty-portal"))
@@ -157,6 +158,42 @@ class ProfessorMediaTests(unittest.TestCase):
             generator.generate("Question", {"professor_id": ids["prof_a"], "media_version": "0" * 64})
         with self.assertRaises(ValueError):
             profile_paths(1, "../../private")
+
+    def test_faculty_can_only_read_transcripts_for_owned_exams(self):
+        a, b = self.client("prof_a"), self.client("prof_b")
+        exam_a, exam_b = "exam_2222222222", "exam_3333333333"
+        self.seed_exam(a, exam_a)
+        self.seed_exam(b, exam_b)
+        session_a = self.portal.TRANSCRIPTS.create(
+            "course-a",
+            exam_a,
+            student_id=3,
+            student_username="student",
+            student_name="Test Student",
+            initial_prompt="Explain TCP.",
+        )
+        self.portal.TRANSCRIPTS.record_turn_and_update(
+            session_id=session_a["id"], question_id="q1",
+            prompt="Explain TCP.", transcript="TCP provides reliable delivery.",
+            evaluation={}, retrieved=[], action="move_on", question_index=1,
+            follow_up_count=0, completed=True,
+        )
+        self.portal.TRANSCRIPTS.create(
+            "course-b", exam_b, student_name="Other Student",
+            initial_prompt="Private prompt",
+        )
+
+        response = a.get("/api/transcripts")
+        self.assertEqual(response.status_code, 200)
+        sessions = response.json()["sessions"]
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(sessions[0]["exam_id"], exam_a)
+        self.assertEqual(sessions[0]["student_name"], "Test Student")
+        self.assertEqual(
+            sessions[0]["messages"][1]["text"],
+            "TCP provides reliable delivery.",
+        )
+        self.assertEqual(self.client("student").get("/api/transcripts").status_code, 403)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,10 @@ This deployment runs two containers:
 
 Docker volumes preserve uploaded courses, SQLite databases, Qdrant indexes,
 generated media, the XTTS model cache, and Ollama models across restarts.
+Student audio is transcribed by Faster Whisper during each assessment turn. The
+examiner prompts, student identity, and resulting text are stored in the
+`capstone-data` volume and appear in the faculty portal's **Transcripts** view.
+Raw recordings are deleted after transcription unless `RETAIN_AUDIO=true`.
 
 ## 1. Prepare the Ubuntu laptop
 

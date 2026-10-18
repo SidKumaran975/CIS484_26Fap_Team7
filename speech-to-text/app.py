@@ -165,13 +165,13 @@ def published_exams(_user: dict = Depends(require_portal_student)):
 
 
 @app.post("/api/sessions")
-def start_session(body: StartSessionRequest, _user: dict = Depends(require_portal_student)):
+def start_session(body: StartSessionRequest, user: dict = Depends(require_portal_student)):
     engine = None
     try:
         engine = app.state.manager.engine_for_exam(body.exam_id)
         with app.state.analytics.run("session_start") as run:
             with run.stage("session_creation"):
-                response = engine.start_session()
+                response = engine.start_session(user)
             run.add_metric("exam_id", body.exam_id)
             run.add_metric("course_id", engine.assessment.course_id)
             run.set_context(
@@ -195,7 +195,7 @@ def start_session(body: StartSessionRequest, _user: dict = Depends(require_porta
 async def submit_answer(
     session_id: str = Form(...),
     audio: UploadFile = File(...),  # noqa: B008 - FastAPI dependency marker
-    _user: dict = Depends(require_portal_student),
+    user: dict = Depends(require_portal_student),
 ):
     settings: Settings = app.state.settings
     content_type = audio.content_type or ""
@@ -222,7 +222,7 @@ async def submit_answer(
                 )
             run.add_metric("transcript_words", len(transcript.split()))
             with run.stage("assessment_engine"):
-                engine = app.state.manager.engine_for_session(session_id)
+                engine = app.state.manager.engine_for_session(session_id, user["id"])
                 run.add_metric("exam_id", engine.exam_id)
                 run.add_metric("course_id", engine.assessment.course_id)
                 response = await run_in_threadpool(
@@ -238,6 +238,8 @@ async def submit_answer(
         raise HTTPException(
             status_code=404, detail="Assessment session not found"
         ) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

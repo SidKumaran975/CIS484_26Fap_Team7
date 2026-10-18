@@ -128,6 +128,18 @@ label{display:block;font-size:13px;color:#d9d1e2;margin-bottom:7px;font-weight:7
 .table-row.head{background:#15101b;color:#8f839b;font-size:11px;text-transform:uppercase;font-weight:800;letter-spacing:.07em}
 .table-row strong{display:block}
 .sub{font-size:12px;color:var(--muted);margin-top:4px}
+.transcript-list{display:grid;gap:14px}
+.transcript-session{padding:0;overflow:hidden}
+.transcript-session summary{display:flex;justify-content:space-between;gap:18px;align-items:center;padding:18px 20px;list-style:none;cursor:pointer}
+.transcript-session summary::-webkit-details-marker{display:none}
+.transcript-session summary:hover{background:#1d1626}
+.transcript-session[open] summary{border-bottom:1px solid var(--line)}
+.transcript-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.transcript-messages{padding:18px 20px;display:grid;gap:12px}
+.transcript-message{padding:13px 15px;border-radius:13px;max-width:88%;white-space:pre-wrap;line-height:1.55}
+.transcript-message.examiner{background:#251733;border:1px solid #553570}
+.transcript-message.student{background:#11281e;border:1px solid #245c45;margin-left:auto}
+.transcript-speaker{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.07em;font-weight:850;margin-bottom:5px;color:var(--muted)}
 .tabs{display:flex;gap:7px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:20px}
 .tab{background:transparent;border:0;color:var(--muted);padding:12px 14px;border-bottom:2px solid transparent;font-weight:750}
 .tab.active{color:#fff;border-bottom-color:var(--purple-bright)}
@@ -235,6 +247,7 @@ summary{cursor:pointer;color:var(--muted)}
     <nav class="nav" aria-label="Main">
       <button data-nav="dashboard" class="active"><span class="ico">⌂</span><span class="label">Dashboard</span></button>
       <button data-nav="builder"><span class="ico">✦</span><span class="label">Exam Builder</span></button>
+      <button data-nav="transcripts"><span class="ico">≡</span><span class="label">Transcripts</span></button>
       <button data-nav="analytics"><span class="ico">▥</span><span class="label">Analytics</span></button>
     </nav>
     <div class="nav-heading"><span>Your courses</span><button id="sideAddCourse" title="Add course" aria-label="Add course">+</button></div>
@@ -429,6 +442,16 @@ summary{cursor:pointer;color:var(--muted)}
       </div>
     </section>
 
+    <!-- ================= TRANSCRIPTS ================= -->
+    <section id="view-transcripts" class="view hidden">
+      <div class="topbar">
+        <div><h1>Assessment Transcripts</h1><p>Faster Whisper transcriptions from students taking your published exams.</p></div>
+        <button class="btn secondary" id="refreshTranscriptsBtn">Refresh</button>
+      </div>
+      <div class="section-head"><div><h2>Recent Sessions</h2><p id="transcriptsStatus">Loading transcripts…</p></div></div>
+      <div id="transcriptsList" class="transcript-list"></div>
+    </section>
+
     <!-- ================= ANALYTICS ================= -->
     <section id="view-analytics" class="view hidden">
       <div class="topbar">
@@ -560,6 +583,7 @@ const api = MOCK_MODE ? null : {
   regenerate: (eid, qid, p) => call(`/api/exams/${eid}/regenerate`, json("POST", { question_id: qid, ...p })),
   saveDraft: (eid, p) => call(`/api/exams/${eid}`, json("PUT", p)),
   publish: (eid, p) => call(`/api/exams/${eid}/publish`, json("POST", p)),
+  transcripts: () => call("/api/transcripts?limit=50"),
   analyticsSummary: () => call("/api/analytics/summary"),
   analyticsRuns: () => call("/api/analytics/runs?limit=25"),
 };
@@ -644,6 +668,10 @@ const mockApi = (() => {
     publish: async (eid, p) => { await sleep(600); const e = db.exams.find(e => e.exam_id === eid);
       Object.assign(e, { title: p.title, settings: { ...p, questions: undefined }, questions: p.questions, status: "published", published_at: now() });
       return { ok: true, exam_id: eid, path: `exams/${eid}.json` }; },
+    transcripts: async () => ({ sessions: [{ id: "session-demo", student_name: "Demo Student", student_username: "student",
+      exam_title: "Architecture Oral Exam", course: "CIS 484", completed: true, created_at: ago(1), turn_count: 1,
+      messages: [{ speaker: "examiner", text: "Explain the main components of your system architecture.", timestamp: ago(1) },
+        { speaker: "student", text: "The system separates the faculty portal, assessment service, model runtime, and persistent data layer.", timestamp: ago(1) }] }] }),
     analyticsSummary: async () => ({ run_count: 8, success_rate: .875, average_duration_ms: 4200, energy_wh_est: .28 }),
     analyticsRuns: async () => ({ runs: [{ started_at: now(), run_type: "course_index", success: true, duration_ms: 4200, input_tokens: 1200, output_tokens: 0, stages: [{ name: "course_extraction_and_embedding", duration_ms: 4100 }] }] }),
   };
@@ -668,6 +696,7 @@ function show(view) {
 }
 document.querySelectorAll("[data-nav]").forEach(b => b.addEventListener("click", () => {
   if (b.dataset.nav === "dashboard") { renderDashboard(); show("dashboard"); }
+  else if (b.dataset.nav === "transcripts") { show("transcripts"); loadTranscripts(); }
   else if (b.dataset.nav === "analytics") { show("analytics"); loadAnalytics(); }
   else { show("builder"); if (!$("courseSel").value && state.courses.length) newExam(null, { keep: true }); }
 }));
@@ -1116,6 +1145,35 @@ async function publish() {
   finally { setBusy(false); }
 }
 $("publishBtn").onclick = publish; $("publishTopBtn").onclick = publish;
+
+/* ============ TRANSCRIPTS ============ */
+async function loadTranscripts() {
+  const btn = $("refreshTranscriptsBtn"); btn.disabled = true;
+  $("transcriptsStatus").textContent = "Loading transcripts…";
+  try {
+    const data = await API.transcripts(), sessions = data.sessions || [];
+    $("transcriptsList").innerHTML = sessions.length ? sessions.map((s, index) => {
+      const student = s.student_name || s.student_username || "Unknown student";
+      const started = s.created_at ? new Date(s.created_at).toLocaleString() : "Unknown start time";
+      const messages = (s.messages || []).map(m => `
+        <div class="transcript-message ${m.speaker === "student" ? "student" : "examiner"}">
+          <span class="transcript-speaker">${m.speaker === "student" ? esc(student) : "Examiner"}</span>${esc(m.text || "")}
+        </div>`).join("");
+      return `<details class="card transcript-session" ${index === 0 ? "open" : ""}>
+        <summary>
+          <div><strong>${esc(student)}</strong><div class="sub">${esc(s.course || "Course")} · ${esc(s.exam_title || "Oral assessment")} · ${esc(started)}</div></div>
+          <div class="transcript-meta"><span class="badge ${s.completed ? "green" : "gold"}">${s.completed ? "Complete" : "In progress"}</span><span class="badge purple">${Number(s.turn_count || 0)} answers</span></div>
+        </summary>
+        <div class="transcript-messages">${messages || `<div class="empty"><strong>No answers recorded</strong><p>The student started this session but has not submitted an answer.</p></div>`}</div>
+      </details>`;
+    }).join("") : `<div class="card empty"><strong>No transcripts yet</strong><p>Completed and in-progress student assessment sessions will appear here after Faster Whisper transcribes an answer.</p></div>`;
+    $("transcriptsStatus").textContent = `Showing ${sessions.length} recent session${sessions.length === 1 ? "" : "s"}.`;
+  } catch (e) {
+    $("transcriptsList").innerHTML = "";
+    $("transcriptsStatus").textContent = `Transcript error: ${e.message}`;
+  } finally { btn.disabled = false; }
+}
+$("refreshTranscriptsBtn").onclick = loadTranscripts;
 
 /* ============ ANALYTICS ============ */
 async function loadAnalytics() {

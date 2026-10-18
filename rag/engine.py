@@ -53,12 +53,20 @@ class AssessmentEngine:
         self.assessment = assessment
         return self.status()
 
-    def start_session(self) -> dict:
+    def start_session(self, student: dict | None = None) -> dict:
         status = self.status()
         if not status.ready:
             raise RuntimeError(status.message)
-        session = self.sessions.create(self.assessment.course_id, self.exam_id)
         question = self.assessment.questions[0]
+        student = student or {}
+        session = self.sessions.create(
+            self.assessment.course_id,
+            self.exam_id,
+            student_id=student.get("id"),
+            student_username=student.get("username"),
+            student_name=student.get("display_name"),
+            initial_prompt=question.prompt,
+        )
         return {
             "session_id": session["id"],
             "question_id": question.id,
@@ -80,6 +88,7 @@ class AssessmentEngine:
         question_index = int(session["question_index"])
         follow_up_count = int(session["follow_up_count"])
         question = self.assessment.questions[question_index]
+        current_prompt = str(session.get("current_prompt") or question.prompt)
         objectives = {
             objective_id: self.assessment.objectives[objective_id]
             for objective_id in question.objectives
@@ -138,7 +147,7 @@ class AssessmentEngine:
         turn_id = self.sessions.record_turn_and_update(
             session_id=session_id,
             question_id=question.id,
-            prompt=question.prompt,
+            prompt=current_prompt,
             transcript=transcript,
             evaluation=evaluation.model_dump(),
             retrieved=[chunk.model_dump() for chunk in retrieved],
@@ -146,6 +155,7 @@ class AssessmentEngine:
             question_index=progress[0],
             follow_up_count=progress[1],
             completed=progress[2],
+            next_prompt=next_prompt,
         )
         return {
             "session_id": session_id,

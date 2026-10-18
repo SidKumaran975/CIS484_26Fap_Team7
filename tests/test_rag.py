@@ -1,3 +1,4 @@
+import sqlite3
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -24,6 +25,32 @@ def fake_embeddings(texts: list[str]) -> list[list[float]]:
 
 
 class CourseTests(unittest.TestCase):
+    def test_session_database_migrates_existing_schema(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "sessions.sqlite3"
+            with sqlite3.connect(path) as connection:
+                connection.executescript("""
+                    CREATE TABLE assessment_sessions (
+                        id TEXT PRIMARY KEY, course_id TEXT NOT NULL, exam_id TEXT,
+                        question_index INTEGER NOT NULL DEFAULT 0,
+                        follow_up_count INTEGER NOT NULL DEFAULT 0,
+                        completed INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+                    CREATE TABLE assessment_turns (
+                        id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+                        question_id TEXT NOT NULL, turn_number INTEGER NOT NULL,
+                        prompt TEXT NOT NULL, transcript TEXT NOT NULL,
+                        evaluation_json TEXT NOT NULL, retrieved_json TEXT NOT NULL,
+                        action TEXT NOT NULL, created_at TEXT NOT NULL);
+                """)
+            store = SessionStore(path)
+            session = store.create(
+                "crs_test", "exam_0123456789", student_name="Migrated Student",
+                initial_prompt="Migrated prompt",
+            )
+            self.assertEqual(session["student_name"], "Migrated Student")
+            self.assertEqual(session["current_prompt"], "Migrated prompt")
+
     def test_published_exam_becomes_assessment_rubric(self):
         assessment = assessment_from_exam(
             {
@@ -46,8 +73,37 @@ class CourseTests(unittest.TestCase):
     def test_session_records_published_exam(self):
         with TemporaryDirectory() as directory:
             store = SessionStore(Path(directory) / "sessions.sqlite3")
-            session = store.create("crs_test", "exam_0123456789")
+            session = store.create(
+                "crs_test",
+                "exam_0123456789",
+                student_id=7,
+                student_username="student7",
+                student_name="Student Seven",
+                initial_prompt="Explain atomicity.",
+            )
             self.assertEqual(session["exam_id"], "exam_0123456789")
+            self.assertEqual(session["student_name"], "Student Seven")
+            store.record_turn_and_update(
+                session_id=session["id"],
+                question_id="Q001",
+                prompt=session["current_prompt"],
+                transcript="Atomicity means all operations commit or none do.",
+                evaluation={"criterion_results": []},
+                retrieved=[],
+                action="move_on",
+                question_index=1,
+                follow_up_count=0,
+                completed=True,
+            )
+            transcripts = store.list_for_exams(["exam_0123456789"])
+            self.assertEqual(len(transcripts), 1)
+            self.assertTrue(transcripts[0]["completed"])
+            self.assertEqual(transcripts[0]["messages"][0]["speaker"], "examiner")
+            self.assertEqual(
+                transcripts[0]["messages"][1]["text"],
+                "Atomicity means all operations commit or none do.",
+            )
+            self.assertEqual(store.list_for_exams(["exam_other"]), [])
 
     def test_analytics_records_per_run_metrics(self):
         with TemporaryDirectory() as directory:
@@ -125,7 +181,7 @@ class CourseTests(unittest.TestCase):
                 max_follow_ups=1,
                 media_mode="none",
             )
-            engine = AssessmentEngine(settings)
+            engine = AssessmentEngine(settings, exam_id="exam_0123456789")
             try:
                 engine.index._embed = fake_embeddings
                 self.assertTrue(engine.publish_course().ready)
@@ -167,6 +223,14 @@ class CourseTests(unittest.TestCase):
                 )
                 self.assertEqual(second["action"], "move_on")
                 self.assertEqual(second["next_question_id"], "Q002")
+                saved = engine.sessions.list_for_exams(["exam_0123456789"])
+                prompts = [
+                    message["text"]
+                    for message in saved[0]["messages"]
+                    if message["speaker"] == "examiner"
+                ]
+                self.assertEqual(prompts[0], "What is ACID compliance in database transactions?")
+                self.assertEqual(prompts[1], "Can you name all four ACID properties?")
             finally:
                 engine.close()
 

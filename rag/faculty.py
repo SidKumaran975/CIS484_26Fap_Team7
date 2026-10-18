@@ -155,8 +155,17 @@ class FacultyAssessmentManager:
         engine.examiner = exam.get("examiner")
         return engine
 
-    def engine_for_session(self, session_id: str) -> AssessmentEngine:
+    def engine_for_session(
+        self, session_id: str, student_id: int | None = None
+    ) -> AssessmentEngine:
         session = self.sessions.get(session_id)
+        recorded_student_id = session.get("student_id")
+        if (
+            student_id is not None
+            and recorded_student_id is not None
+            and int(recorded_student_id) != int(student_id)
+        ):
+            raise PermissionError("This assessment session belongs to another student.")
         exam_id = session.get("exam_id")
         if not exam_id:
             raise ValueError("This session is not linked to a published faculty exam.")

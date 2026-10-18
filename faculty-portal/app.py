@@ -52,6 +52,7 @@ if str(ROOT_DIR) not in sys.path:
 from rag.analytics import AnalyticsStore, record_ollama_call
 from rag.index import CourseIndex
 from rag.profiles import profile_paths, save_profile
+from rag.sessions import SessionStore
 
 # ================= CONFIG (override with environment variables) =================
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
@@ -80,6 +81,9 @@ COURSE_INDEX_DIR = Path(
 ANALYTICS_DB_PATH = Path(
     os.getenv("ANALYTICS_DB_PATH", ROOT_DIR / "runtime" / "analytics.sqlite3")
 ).resolve()
+SESSION_DB_PATH = Path(
+    os.getenv("SESSION_DB_PATH", ROOT_DIR / "runtime" / "sessions.sqlite3")
+).resolve()
 EMBED_MODEL = os.getenv("RAG_EMBED_MODEL", "nomic-embed-text")
 ANALYTICS_BASE_WATTS = float(os.getenv("ANALYTICS_BASE_WATTS", "30"))
 STATIC_PAGE = BASE_DIR / "index.html"   # same layout as speech-to-text/
@@ -88,6 +92,7 @@ EXAMS_DIR.mkdir(parents=True, exist_ok=True)
 COURSE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 COURSE_INDEX_DIR.mkdir(parents=True, exist_ok=True)
 ANALYTICS = AnalyticsStore(ANALYTICS_DB_PATH, ANALYTICS_BASE_WATTS)
+TRANSCRIPTS = SessionStore(SESSION_DB_PATH)
 
 # ================= DATABASE (SQLite, no setup needed) =================
 def db():
@@ -475,6 +480,31 @@ def analytics_summary(user: dict = Depends(require_faculty)):
 @app.get("/api/analytics/runs")
 def analytics_runs(limit: int = 50, user: dict = Depends(require_faculty)):
     return {"runs": ANALYTICS.recent_runs(limit)}
+
+
+@app.get("/api/transcripts")
+def assessment_transcripts(
+    limit: int = 50, user: dict = Depends(require_faculty)
+):
+    """Return transcripts only for exams owned by the signed-in professor."""
+    with db() as connection:
+        rows = connection.execute(
+            """SELECT e.id AS exam_id, e.title, co.code AS course
+               FROM exams e JOIN courses co ON co.id=e.course_id
+               WHERE co.owner_id=?""",
+            (user["id"],),
+        ).fetchall()
+    exams = {
+        str(row["exam_id"]): {
+            "exam_title": row["title"] or "Untitled exam",
+            "course": row["course"],
+        }
+        for row in rows
+    }
+    sessions = TRANSCRIPTS.list_for_exams(list(exams), limit)
+    for session in sessions:
+        session.update(exams.get(str(session["exam_id"]), {}))
+    return {"sessions": sessions}
 
 
 # ================= COURSES =================
