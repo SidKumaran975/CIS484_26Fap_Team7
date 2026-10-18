@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .analytics import analytics_stage
 from .config import ROOT_DIR, Settings
+from .profiles import profile_paths
 
 
 class MediaGenerator:
@@ -60,17 +61,22 @@ class MediaGenerator:
         except subprocess.CalledProcessError as exc:
             raise RuntimeError(f"{label} failed with exit code {exc.returncode}") from exc
 
-    def generate(self, text: str) -> str | None:
+    def generate(self, text: str, examiner: dict | None = None) -> str | None:
         mode = self.settings.media_mode
         if mode == "none":
             return None
         if mode not in {"audio", "avatar"}:
             raise ValueError("MEDIA_MODE must be none, audio, or avatar")
-        cache_parts = [text, mode, self._asset_version(self.reference_audio)]
+        avatar, reference_audio = self.avatar, self.reference_audio
+        if examiner is not None:
+            avatar, reference_audio = profile_paths(examiner["professor_id"], examiner["media_version"])
+            if not reference_audio.is_file() or (mode == "avatar" and not avatar.is_file()):
+                raise ValueError("This exam's professor media is missing. Restore its media files before continuing.")
+        cache_parts = [text, mode, self._asset_version(reference_audio)]
         if mode == "avatar":
             cache_parts.extend(
                 [
-                    self._asset_version(self.avatar),
+                    self._asset_version(avatar),
                     self._asset_version(self.checkpoint),
                     f"resize:{self.settings.wav2lip_resize_factor}",
                 ]
@@ -97,6 +103,8 @@ class MediaGenerator:
                         text,
                         "--output",
                         str(audio_path),
+                        "--reference-audio",
+                        str(reference_audio),
                     ],
                     self.tts_script.parent,
                     "XTTS speech generation",
@@ -112,7 +120,7 @@ class MediaGenerator:
                             "--checkpoint_path",
                             str(self.checkpoint),
                             "--face",
-                            str(self.avatar),
+                            str(avatar),
                             "--audio",
                             str(audio_path),
                             "--outfile",

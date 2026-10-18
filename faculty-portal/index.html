@@ -261,6 +261,24 @@ summary{cursor:pointer;color:var(--muted)}
         </div>
       </div>
 
+      <div class="card" style="margin-bottom:24px">
+        <h2>Professor avatar</h2>
+        <p>Upload your face and voice for exams you publish. Existing published exams keep their saved version until you publish them again.</p>
+        <p id="profileMediaStatus" role="status">Loading your avatar…</p>
+        <form id="profileMediaForm" style="display:grid;gap:10px">
+          <label for="profilePhoto">Face photo (PNG, 256–4096 pixels, up to 10 MB)</label>
+          <input id="profilePhoto" type="file" accept="image/png,.png" required>
+          <label for="profileVoice">Voice recording (16-bit PCM WAV, 6–30 seconds, 16–48 kHz, up to 6 MB)</label>
+          <input id="profileVoice" type="file" accept="audio/wav,.wav" required>
+          <p>Use a clear, front-facing photo and clean speech without background music. Upload only a photo and voice you have permission to use.</p>
+          <button class="btn secondary" id="saveProfileMedia" type="submit" style="justify-self:start">Save photo and voice</button>
+        </form>
+        <div id="profileMediaPreview" hidden style="margin-top:16px">
+          <img id="profilePhotoPreview" alt="Your saved professor photo" style="max-width:180px;max-height:180px;border-radius:12px">
+          <audio id="profileVoicePreview" controls preload="none" aria-label="Your saved voice recording"></audio>
+        </div>
+      </div>
+
       <div class="grid cols-4">
         <div class="card stat"><div class="kicker">Courses</div><div class="value" id="statCourses">–</div><div class="trend">Each has its own documents</div></div>
         <div class="card stat"><div class="kicker">Documents</div><div class="value" id="statDocs">–</div><div class="trend">Across all courses</div></div>
@@ -1151,8 +1169,37 @@ async function loadHealth() {
 }
 
 /* ============ START ============ */
+async function loadProfileMedia() {
+  if (MOCK_MODE) { $("profileMediaStatus").textContent = "Avatar uploads are available when connected to the server."; return; }
+  try {
+    const profile = await call("/api/profile/media");
+    $("profileMediaStatus").textContent = profile.configured
+      ? "Your photo and voice will be attached when you publish an exam."
+      : "No personal avatar saved. Exams currently use the shared default photo and voice.";
+    $("profileMediaPreview").hidden = !profile.configured;
+    if (profile.configured) {
+      $("profilePhotoPreview").src = API_BASE + "/api/profile/media/photo?v=" + profile.version;
+      $("profileVoicePreview").src = API_BASE + "/api/profile/media/voice?v=" + profile.version;
+    }
+  } catch (e) { $("profileMediaStatus").textContent = e.message; }
+}
+$("profileMediaForm").onsubmit = async event => {
+  event.preventDefault();
+  if (MOCK_MODE) return toast("Connect to the server to upload your avatar.");
+  const button = $("saveProfileMedia"); button.disabled = true;
+  $("profileMediaStatus").textContent = "Saving photo and voice…";
+  try {
+    const data = new FormData();
+    data.append("photo", $("profilePhoto").files[0]);
+    data.append("voice", $("profileVoice").files[0]);
+    await call("/api/profile/media", { method: "POST", body: data });
+    $("profileMediaForm").reset();
+    await loadProfileMedia(); toast("Professor avatar saved");
+  } catch (e) { $("profileMediaStatus").textContent = e.message; }
+  finally { button.disabled = false; }
+};
 (async () => {
-  loadUser(); loadHealth();
+  loadUser(); loadHealth(); loadProfileMedia();
   try { await loadCourses(); } catch (e) { toast(e.message); }
   newExam(null, { silent: true });
   await renderDashboard();

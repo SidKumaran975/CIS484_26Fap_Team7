@@ -42,6 +42,7 @@ services:
       FACULTY_EXAMS_DIR: /data/exams
       FACULTY_COURSE_STORAGE: /data/faculty-courses
       FACULTY_INDEX_STORAGE: /data/faculty-indexes
+      FACULTY_MEDIA_STORAGE: /data/faculty-media
       ANALYTICS_DB_PATH: /data/analytics.sqlite3
       SESSION_DB_PATH: /data/sessions.sqlite3
       MEDIA_DIR: /data/media

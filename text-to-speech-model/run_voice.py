@@ -38,14 +38,14 @@ REFERENCE_AUDIO_PATH = os.environ.get(
 )
 
 
-def synthesize(text: str, output_path: str) -> None:
+def synthesize(text: str, output_path: str, reference_audio: str = REFERENCE_AUDIO_PATH) -> None:
     # 1. VERIFY AUDIO SAMPLE PATH
     # Check that the voice sample exists at the exact path before proceeding
-    if not os.path.exists(REFERENCE_AUDIO_PATH):
-        print(f"Error: Could not find audio file at: {REFERENCE_AUDIO_PATH}")
+    if not os.path.exists(reference_audio):
+        print(f"Error: Could not find audio file at: {reference_audio}")
         sys.exit(1)
 
-    print(f"Loaded voice reference: {REFERENCE_AUDIO_PATH}")
+    print(f"Loaded voice reference: {reference_audio}")
 
     # 2. LOAD XTTS MODEL
     # Loads the XTTS v2 model into memory (will download weights on the first run)
@@ -59,7 +59,7 @@ def synthesize(text: str, output_path: str) -> None:
     print("Synthesizing audio using cloned voice...")
     tts.tts_to_file(
         text=text,
-        speaker_wav=REFERENCE_AUDIO_PATH,
+        speaker_wav=reference_audio,
         language="en",
         file_path=output_path,
     )
@@ -69,8 +69,9 @@ def main():
     parser = argparse.ArgumentParser(description="Synthesize assessment speech")
     parser.add_argument("--text", required=True, help="Text to speak")
     parser.add_argument("--output", required=True, help="Output WAV path")
+    parser.add_argument("--reference-audio", default=REFERENCE_AUDIO_PATH, help="Professor reference WAV")
     args = parser.parse_args()
-    synthesize(args.text, args.output)
+    synthesize(args.text, args.output, args.reference_audio)
 
 
 if __name__ == "__main__":

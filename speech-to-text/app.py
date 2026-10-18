@@ -68,14 +68,14 @@ def transcribe_audio(model: WhisperModel, audio_path: Path) -> str:
     return " ".join(segment.text.strip() for segment in segments).strip()
 
 
-def add_media(response: dict, media: MediaGenerator, prompt_key: str) -> dict:
+def add_media(response: dict, media: MediaGenerator, prompt_key: str, examiner: dict | None = None) -> dict:
     if response.get("completed"):
         response["media_url"] = None
         response["media_error"] = None
         return response
     prompt = response.get(prompt_key, "")
     try:
-        response["media_url"] = media.generate(prompt) if prompt else None
+        response["media_url"] = media.generate(prompt, examiner=examiner) if prompt else None
         response["media_error"] = None
     except Exception as exc:  # noqa: BLE001 - convert media errors at API boundary
         if media.settings.media_mode == "avatar":
@@ -179,7 +179,7 @@ def start_session(body: StartSessionRequest, _user: dict = Depends(require_porta
                 question_id=response["question_id"],
             )
             with run.stage("examiner_media"):
-                return add_media(response, app.state.media, "prompt")
+                return add_media(response, app.state.media, "prompt", engine.examiner)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
@@ -231,7 +231,7 @@ async def submit_answer(
             run.set_context(question_id=response["question_id"])
             with run.stage("examiner_media"):
                 response = await run_in_threadpool(
-                    add_media, response, app.state.media, "next_prompt"
+                    add_media, response, app.state.media, "next_prompt", engine.examiner
                 )
             return response
     except KeyError as exc:

@@ -152,6 +152,7 @@ class FacultyAssessmentManager:
             assessment=assessment_from_exam(exam),
             exam_id=exam_id,
         )
+        engine.examiner = exam.get("examiner")
         return engine
 
     def engine_for_session(self, session_id: str) -> AssessmentEngine:

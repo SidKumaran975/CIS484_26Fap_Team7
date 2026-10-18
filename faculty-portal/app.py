@@ -51,6 +51,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from rag.analytics import AnalyticsStore, record_ollama_call
 from rag.index import CourseIndex
+from rag.profiles import profile_paths, save_profile
 
 # ================= CONFIG (override with environment variables) =================
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
@@ -124,6 +125,11 @@ def init_db():
         _add_column(c, "materials", "relative_path", "TEXT")
         _add_column(c, "materials", "storage_path", "TEXT")
         _add_column(c, "exams", "course_id", "TEXT")
+        _add_column(c, "exams", "professor_id", "INTEGER")
+        _add_column(c, "exams", "media_version", "TEXT")
+        c.execute("""CREATE TABLE IF NOT EXISTS professor_media (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id),
+            version TEXT NOT NULL, updated_at TEXT NOT NULL)""")
         c.execute("CREATE INDEX IF NOT EXISTS idx_materials_course ON materials(course_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_exams_course ON exams(course_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_chunks_material ON chunks(material_id)")
@@ -718,6 +724,55 @@ def save_draft(exam_id: str, s: PublishRequest, user: dict = Depends(require_fac
     return {"ok": True}
 
 
+def professor_profile(user_id: int) -> dict | None:
+    with db() as c:
+        row = c.execute("SELECT version, updated_at FROM professor_media WHERE user_id=?", (user_id,)).fetchone()
+    return dict(row) if row else None
+
+
+@app.get("/api/profile/media")
+def get_profile_media(user: dict = Depends(require_faculty)):
+    profile = professor_profile(user["id"])
+    return {"configured": bool(profile), **(profile or {})}
+
+
+@app.post("/api/profile/media")
+async def upload_profile_media(
+    photo: UploadFile = File(...), voice: UploadFile = File(...),
+    user: dict = Depends(require_faculty),
+):
+    if Path(photo.filename or "").suffix.lower() != ".png" or Path(voice.filename or "").suffix.lower() != ".wav":
+        raise HTTPException(415, "Upload a PNG photo and a WAV voice recording")
+    photo_bytes = await photo.read(10 * 1024 * 1024 + 1)
+    voice_bytes = await voice.read(6 * 1024 * 1024 + 1)
+    if len(photo_bytes) > 10 * 1024 * 1024 or len(voice_bytes) > 6 * 1024 * 1024:
+        raise HTTPException(413, "Photo limit is 10 MB; voice limit is 6 MB")
+    try:
+        version = await run_in_threadpool(save_profile, user["id"], photo_bytes, voice_bytes)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    with db() as c:
+        c.execute("""INSERT INTO professor_media (user_id, version, updated_at) VALUES (?,?,?)
+            ON CONFLICT(user_id) DO UPDATE SET version=excluded.version, updated_at=excluded.updated_at""",
+            (user["id"], version, now()))
+    return {"ok": True, "version": version}
+
+
+@app.get("/api/profile/media/{kind}")
+def preview_profile_media(kind: str, user: dict = Depends(require_faculty)):
+    if kind not in {"photo", "voice"}:
+        raise HTTPException(404, "Media not found")
+    profile = professor_profile(user["id"])
+    if not profile:
+        raise HTTPException(404, "Upload your professor avatar first")
+    paths = profile_paths(user["id"], profile["version"])
+    path = paths[0 if kind == "photo" else 1]
+    if not path.is_file():
+        raise HTTPException(404, "Professor media file is missing; upload it again")
+    return FileResponse(path, media_type="image/png" if kind == "photo" else "audio/wav",
+                        headers={"Cache-Control": "private, no-store"})
+
+
 @app.post("/api/exams/{exam_id}/publish")
 def publish(exam_id: str, s: PublishRequest, user: dict = Depends(require_faculty)):
     row = get_exam_row(exam_id, user)
@@ -731,6 +786,9 @@ def publish(exam_id: str, s: PublishRequest, user: dict = Depends(require_facult
     if manifest.get("course_id") != course["id"] or manifest.get("embedding_model") != EMBED_MODEL:
         raise HTTPException(409, "The course index is out of date. Rebuild it before publishing.")
     published = now()
+    profile = professor_profile(user["id"])
+    if profile and not all(p.is_file() for p in profile_paths(user["id"], profile["version"])):
+        raise HTTPException(409, "Your professor media files are missing. Upload them again before publishing.")
     exam = {
         "exam_id": exam_id,
         "course_id": course["id"],
@@ -740,6 +798,8 @@ def publish(exam_id: str, s: PublishRequest, user: dict = Depends(require_facult
         "title": s.title,
         "seconds_per_question": s.seconds_per_question,
         "published_at": published,
+        "professor_id": user["id"],
+        "examiner": {"professor_id": user["id"], "media_version": profile["version"]} if profile else None,
         "questions": [
             {"id": q.get("id"), "question": q.get("question", ""), "key_points": q.get("key_points", []),
              "follow_up": q.get("follow_up"), "source_file": q.get("source_file")}
@@ -751,9 +811,11 @@ def publish(exam_id: str, s: PublishRequest, user: dict = Depends(require_facult
     settings = GenerateRequest(**s.model_dump(exclude={"questions"}))
     settings.course = course["code"]
     with db() as c:
-        c.execute("UPDATE exams SET title=?, settings=?, questions=?, status='published', published_at=? WHERE id=?",
-                  (s.title, settings.model_dump_json(), json.dumps(s.questions), published, exam_id))
-    return {"ok": True, "exam_id": exam_id, "path": str(path.relative_to(BASE_DIR))}
+        c.execute("UPDATE exams SET title=?, settings=?, questions=?, status='published', published_at=?, professor_id=?, media_version=? WHERE id=?",
+                  (s.title, settings.model_dump_json(), json.dumps(s.questions), published,
+                   user["id"], profile["version"] if profile else None, exam_id))
+    display_path = path.relative_to(BASE_DIR) if path.is_relative_to(BASE_DIR) else path
+    return {"ok": True, "exam_id": exam_id, "path": str(display_path)}
 
 
 # ================= EXAMS (student side reads) =================
