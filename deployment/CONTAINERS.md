@@ -42,6 +42,34 @@ docker compose build app
 docker compose up -d ollama
 ```
 
+The base Compose file uses CPU-only PyTorch wheels and
+`WHISPER_DEVICE=cpu`. The Hartman 2011 machine's 16 GB RTX PRO 2000 is a
+Blackwell GPU, whose first supported CUDA toolkit is CUDA 12.8. Install a
+current NVIDIA driver that supports CUDA 12.8 and the NVIDIA Container Toolkit,
+configure Docker, and verify access:
+
+```bash
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+docker run --rm --gpus all nvidia/cuda:12.8.1-base-ubuntu22.04 nvidia-smi
+```
+
+Then build and start with both Compose files. The override uses the official
+PyTorch 2.9.1 runtime with CUDA 12.8 and cuDNN 9, exposes the same GPU to the
+app and Ollama containers, and changes Faster Whisper to CUDA/float16. XTTS,
+Wav2Lip, and Ollama automatically select the GPU when it is available.
+
+```bash
+docker compose -f compose.yaml -f compose.gpu.yaml build app
+docker compose -f compose.yaml -f compose.gpu.yaml up -d
+docker compose -f compose.yaml -f compose.gpu.yaml exec app \
+  python -c 'import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))'
+```
+
+For the rest of this guide, keep using both `-f compose.yaml -f
+compose.gpu.yaml` arguments for every command that manages the GPU `app`
+service. The shorter commands below are the CPU form.
+
 Pull the three required Ollama models once:
 
 ```bash
@@ -97,20 +125,37 @@ should not be exposed outside a trusted test network.
 
 ## Moving the built image without rebuilding
 
+Docker images are architecture-specific. Check both machines first:
+
+```bash
+docker info --format '{{.Architecture}}'
+uname -m
+```
+
+An image built normally on an Apple-silicon Mac is `arm64` and will not run on
+a typical `x86_64`/`amd64` Ubuntu server. For an amd64 NVIDIA server, build and
+load an amd64 image on the Mac before exporting it:
+
 On the build machine:
 
 ```bash
-docker compose build app
+docker buildx build --platform linux/amd64 --load \
+  -f Dockerfile.gpu -t capstone-app:latest .
 docker save -o capstone-app.tar capstone-app:latest
 ```
 
-Copy `capstone-app.tar`, this repository's `compose.yaml`, `.env`, and the four
-private model assets to the Ubuntu laptop. On the laptop:
+Copy `capstone-app.tar`, this repository's `compose.yaml`, `compose.gpu.yaml`,
+`.env`, and the four private model assets to the Ubuntu server. On the server:
 
 ```bash
 docker load -i capstone-app.tar
-docker compose up -d
+docker compose -f compose.yaml -f compose.gpu.yaml up -d --no-build
 ```
+
+Alternatively, copy the repository and private assets to the server and run
+`docker compose -f compose.yaml -f compose.gpu.yaml build app` there. Building
+on the server automatically uses its native architecture and is usually faster
+than emulation on a Mac.
 
 The exact Compose image name can be checked with:
 

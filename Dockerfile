@@ -1,5 +1,11 @@
 FROM python:3.11-slim-bookworm
 
+# The portable Compose deployment is CPU-first. Installing PyTorch from the
+# default PyPI index also pulls several gigabytes of CUDA libraries on Linux,
+# even when the container has no GPU access. Override this build argument only
+# when building a GPU-specific image with a compatible wheel source.
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -22,7 +28,7 @@ COPY deployment/requirements-stt.txt deployment/requirements-tts.txt deployment/
 COPY faculty-portal/requirements.txt /tmp/requirements/faculty.txt
 
 RUN python -m pip install --upgrade pip setuptools wheel \
-    && python -m pip install torch torchaudio torchvision \
+    && python -m pip install --index-url "${TORCH_INDEX_URL}" torch torchaudio torchvision \
     && python -m pip install \
         -r /tmp/requirements/requirements-stt.txt \
         -r /tmp/requirements/requirements-tts.txt \

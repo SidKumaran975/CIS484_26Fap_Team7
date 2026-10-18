@@ -1,0 +1,6 @@
+# Match the preinstalled packages in the official CUDA 12.8 PyTorch image.
+# TorchCodec's compatibility table maps 0.9 to PyTorch 2.9.
+torch==2.9.1
+torchvision==0.24.1
+torchaudio==2.9.1
+torchcodec>=0.9,<0.10
