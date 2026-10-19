@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Photo verification{% endblock %}
+{% block body %}
+<div class="card">
+  <h1>Hi, {{ name }}</h1>
+  <p class="sub">Take a clear photo of your face. It will be attached to your exam report.</p>
+
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas" hidden></canvas>
+  <div id="msg" class="error" role="alert" hidden></div>
+
+  <div class="row">
+    <button id="snap" disabled>Take photo</button>
+    <button id="retake" class="secondary" hidden>Retake</button>
+    <button id="use" hidden>Use this photo</button>
+  </div>
+</div>
+
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const snap = document.getElementById('snap');
+const retake = document.getElementById('retake');
+const use = document.getElementById('use');
+const msg = document.getElementById('msg');
+let stream = null;
+
+function showError(text) { msg.textContent = text; msg.hidden = false; }
+
+async function startCamera() {
+  msg.hidden = true;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showError('Camera access needs a secure (https) connection. Ask your instructor for the secure link.');
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia(
+      { video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+    video.srcObject = stream;
+    video.hidden = false; canvas.hidden = true;
+    snap.hidden = false; snap.disabled = false;
+    retake.hidden = true; use.hidden = true;
+  } catch (e) {
+    showError('Could not open the camera. Allow camera access in your browser and reload the page.');
+  }
+}
+
+snap.onclick = () => {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  video.hidden = true; canvas.hidden = false;
+  snap.hidden = true; retake.hidden = false; use.hidden = false;
+};
+
+retake.onclick = startCamera;
+
+use.onclick = async () => {
+  use.disabled = true; msg.hidden = true;
+  try {
+    const res = await fetch('{{ url_for("save_photo") }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '{{ csrf_token() }}' },
+      body: JSON.stringify({ image: canvas.toDataURL('image/jpeg', 0.85) })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Upload failed');
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    window.location = data.next;
+  } catch (e) {
+    showError(e.message || 'Upload failed. Please try again.');
+    use.disabled = false;
+  }
+};
+
+startCamera();
+</script>
+{% endblock %}
