@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Exam report{% endblock %}
+{% block body %}
+<div class="card">
+  <h1>Exam report</h1>
+  <p class="sub">Verification record for this exam session.</p>
+
+  <div class="photos">
+    {% if ex["id_photo_path"] %}
+    <figure>
+      <img class="photo" src="{{ url_for('report_photo', kind='id') }}" alt="Student ID card of {{ name }}">
+      <figcaption>Student ID</figcaption>
+    </figure>
+    {% endif %}
+    {% if ex["photo_path"] %}
+    <figure>
+      <img class="photo" src="{{ url_for('report_photo', kind='face') }}" alt="Photo of {{ name }} taken at the start of the exam">
+      <figcaption>Face</figcaption>
+    </figure>
+    {% endif %}
+  </div>
+
+  <table>
+    <tr><td>Student</td><td>{{ name }}</td></tr>
+    <tr><td>Session</td><td>#{{ ex["id"] }}</td></tr>
+    <tr><td>Identity review</td><td>{{ (ex["verification_status"] or "pending")|capitalize }}{% if ex["reviewed_by"] %} (by {{ ex["reviewed_by"] }}){% endif %}</td></tr>
+    <tr><td>Exam started</td><td>{{ ex["started_at"] }}</td></tr>
+    <tr><td>ID photo taken</td><td>{{ ex["id_photo_taken_at"] or "Not taken" }}</td></tr>
+    <tr><td>Face photo taken</td><td>{{ ex["photo_taken_at"] or "Not taken" }}</td></tr>
+    <tr><td>Exam ended</td><td>{{ ex["ended_at"] or "In progress" }}</td></tr>
+    <tr><td>Score</td><td>{{ ex["score"] if ex["score"] is not none else "Pending" }}</td></tr>
+    <tr><td>Notes</td><td>{{ ex["notes"] or "-" }}</td></tr>
+  </table>
+
+  <div class="row no-print">
+    <button onclick="window.print()">Print / save as PDF</button>
+    <form method="post" action="{{ url_for('logout') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <button class="secondary" type="submit">Sign out</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

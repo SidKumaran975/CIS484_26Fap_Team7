@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Oral exam{% endblock %}
+{% block body %}
+<div class="card">
+  <h1>Ready, {{ name }}</h1>
+  <p class="sub">Your ID and face photos are saved. Your instructor will review them against your exam record.</p>
+  <!-- Plug your AI examiner UI into this page. -->
+  <form method="post" action="{{ url_for('finish_exam') }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <div class="row"><button type="submit">End exam and view report</button></div>
+  </form>
+</div>
+{% endblock %}
