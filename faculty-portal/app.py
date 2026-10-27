@@ -52,6 +52,7 @@ if str(ROOT_DIR) not in sys.path:
 from rag.analytics import AnalyticsStore, record_ollama_call
 from rag.index import CourseIndex
 from rag.profiles import profile_paths, save_profile
+from rag.question_import import parse_question_file
 from rag.sessions import SessionStore
 
 # ================= CONFIG (override with environment variables) =================
@@ -722,6 +723,75 @@ async def generate(s: GenerateRequest, user: dict = Depends(require_faculty)):
                   (exam_id, course["code"], s.title, s.model_dump_json(), json.dumps(questions),
                    "draft", now(), None, course["id"]))
     return {"exam_id": exam_id, "questions": questions}
+
+
+@app.post("/api/exams/import")
+@app.post("/api/exams/import-docx", include_in_schema=False)
+async def import_questions(
+    course_id: str = Form(...),
+    title: str = Form(""),
+    seconds_per_question: int = Form(180),
+    file: UploadFile = File(...),
+    user: dict = Depends(require_faculty),
+):
+    """Create an editable draft from a faculty-authored question list."""
+    course = get_course(course_id, user)
+    if not 30 <= seconds_per_question <= 1800:
+        raise HTTPException(400, "Time per question must be between 30 and 1800 seconds.")
+    filename = Path(file.filename or "questions").name
+    if Path(filename).suffix.lower() not in {".docx", ".xlsx", ".csv"}:
+        raise HTTPException(400, "Premade questions must be uploaded as DOCX, XLSX, or CSV.")
+    data = await file.read(MAX_UPLOAD_MB * 1024 * 1024 + 1)
+    if not data:
+        raise HTTPException(400, "The question document is empty.")
+    if len(data) > MAX_UPLOAD_MB * 1024 * 1024:
+        raise HTTPException(413, f"Question documents must be under {MAX_UPLOAD_MB} MB.")
+    try:
+        questions = await run_in_threadpool(parse_question_file, data, filename)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    with db() as c:
+        material_ids = [
+            row["id"]
+            for row in c.execute(
+                "SELECT id FROM materials WHERE course_id=? ORDER BY uploaded_at",
+                (course_id,),
+            )
+        ]
+    exam_title = title.strip() or Path(filename).stem
+    settings = GenerateRequest(
+        course_id=course_id,
+        course=course["code"],
+        title=exam_title[:200],
+        seconds_per_question=seconds_per_question,
+        material_ids=material_ids,
+        num_questions=len(questions),
+        include_follow_ups=any("follow_up" in question for question in questions),
+    )
+    exam_id = "exam_" + uuid.uuid4().hex[:10]
+    with db() as c:
+        c.execute(
+            "INSERT INTO exams (id, course, title, settings, questions, status, created_at, published_at, course_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (
+                exam_id,
+                course["code"],
+                settings.title,
+                settings.model_dump_json(),
+                json.dumps(questions),
+                "draft",
+                now(),
+                None,
+                course_id,
+            ),
+        )
+    return {
+        "exam_id": exam_id,
+        "title": settings.title,
+        "questions": questions,
+        "question_count": len(questions),
+    }
 
 
 @app.post("/api/exams/{exam_id}/regenerate")

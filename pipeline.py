@@ -14,9 +14,20 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent
 STT_DIR = ROOT_DIR / "speech-to-text"
 FACULTY_DIR = ROOT_DIR / "faculty-portal"
+
+
+def component_python(variable: str, environment: str) -> str:
+    """Use an explicit interpreter or the component environment when present."""
+    configured = os.environ.get(variable)
+    if configured:
+        return configured
+    candidate = ROOT_DIR / environment / "bin" / "python"
+    return str(candidate) if candidate.is_file() else sys.executable
+
+
 STT_PYTHON = os.environ.get("STT_PYTHON", sys.executable)
-MAIN_PYTHON = os.environ.get("MAIN_PYTHON", sys.executable)
-WAV2LIP_PYTHON = os.environ.get("WAV2LIP_PYTHON", sys.executable)
+MAIN_PYTHON = component_python("MAIN_PYTHON", ".venv-tts")
+WAV2LIP_PYTHON = component_python("WAV2LIP_PYTHON", ".venv-wav2lip")
 STT_HOST = os.environ.get("STT_HOST", "127.0.0.1")
 STT_PORT = os.environ.get("STT_PORT", "8000")
 FACULTY_PORT = os.environ.get("PORT", "8001")
@@ -72,12 +83,22 @@ def preflight() -> None:
 
 def main() -> None:
     preflight()
+    component_environment = {
+        **os.environ,
+        "STT_PYTHON": STT_PYTHON,
+        "MAIN_PYTHON": MAIN_PYTHON,
+        "WAV2LIP_PYTHON": WAV2LIP_PYTHON,
+    }
     log.info("Starting assessment server at http://%s:%s", STT_HOST, STT_PORT)
     log.info("Starting faculty portal at http://%s:%s/login", STT_HOST, FACULTY_PORT)
     faculty = subprocess.Popen(
         [STT_PYTHON, "app.py"],
         cwd=FACULTY_DIR,
-        env={**os.environ, "HOST": STT_HOST, "PORT": FACULTY_PORT},
+        env={
+            **component_environment,
+            "HOST": STT_HOST,
+            "PORT": FACULTY_PORT,
+        },
     )
     try:
         subprocess.run(
@@ -93,6 +114,7 @@ def main() -> None:
             ],
             cwd=STT_DIR,
             check=True,
+            env=component_environment,
         )
     except KeyboardInterrupt:
         log.info("Assessment services stopped.")

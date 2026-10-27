@@ -409,6 +409,9 @@ summary{cursor:pointer;color:var(--muted)}
               <div class="full"><label for="focus">Topics to Emphasize (optional, comma separated)</label><input class="input" id="focus" placeholder="normalization, ER diagrams, SQL joins"></div>
             </div>
             <button class="btn block" id="generateBtn" style="margin-top:18px">Generate Questions</button>
+            <button class="btn secondary block" id="importQuestionsBtn" style="margin-top:10px">Import Premade Questions</button>
+            <input id="questionFile" type="file" accept=".docx,.xlsx,.csv,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden>
+            <p class="sub" style="margin-top:8px">DOCX supports paragraphs and tables. XLSX and CSV use Question, Key Points, and Follow-up columns.</p>
           </div>
 
           <div id="status" class="status hidden" role="status" aria-live="polite"></div>
@@ -580,6 +583,7 @@ const api = MOCK_MODE ? null : {
   exams: cid => call(`/api/courses/${cid}/exams`),
   openExam: eid => call(`/api/exams/${eid}/edit`),
   generate: p => call("/api/exams/generate", json("POST", p)),
+  importQuestions: (p, file) => { const fd = new FormData(); fd.append("course_id", p.course_id); fd.append("title", p.title); fd.append("seconds_per_question", p.seconds_per_question); fd.append("file", file); return call("/api/exams/import", { method: "POST", body: fd }); },
   regenerate: (eid, qid, p) => call(`/api/exams/${eid}/regenerate`, json("POST", { question_id: qid, ...p })),
   saveDraft: (eid, p) => call(`/api/exams/${eid}`, json("PUT", p)),
   publish: (eid, p) => call(`/api/exams/${eid}/publish`, json("POST", p)),
@@ -662,6 +666,7 @@ const mockApi = (() => {
       const e = { exam_id: "exam_" + hex(), course_id: p.course_id, title: p.title, status: "draft", created_at: now(), published_at: null,
         settings: { ...p }, questions: Array.from({ length: p.num_questions }, () => mkQ(docs, p.include_follow_ups)) };
       db.exams.push(e); return JSON.parse(JSON.stringify({ exam_id: e.exam_id, questions: e.questions })); },
+    importQuestions: async () => { throw new Error("DOCX import is available when connected to the server."); },
     regenerate: async (eid, qid, p) => { await sleep(1100); return mkQ(docsFor(p.course_id, p.material_ids), p.include_follow_ups); },
     saveDraft: async (eid, p) => { await sleep(300); const e = db.exams.find(e => e.exam_id === eid);
       Object.assign(e, { title: p.title, settings: { ...p, questions: undefined }, questions: p.questions }); return { ok: true }; },
@@ -1044,6 +1049,7 @@ function updateBuilderChrome() {
   $("publishBtn").disabled = $("publishTopBtn").disabled = !canPublish;
   $("saveDraftBtn").disabled = !state.b.examId || state.busy;
   $("generateBtn").disabled = state.busy;
+  $("importQuestionsBtn").disabled = state.busy;
   $("approvedCount").textContent = qs.length ? `${approved} of ${qs.length} approved` : "";
   $("approvedCount").className = "badge " + (qs.length && approved === qs.length ? "green" : "purple");
 }
@@ -1077,6 +1083,34 @@ $("generateBtn").onclick = async () => {
     loadCourses();
   } catch (e) { showStatus("error", "Generation failed: " + esc(e.message)); }
   finally { $("generateBtn").textContent = "Generate Questions"; setBusy(false); }
+};
+
+$("importQuestionsBtn").onclick = () => {
+  const s = settings();
+  if (!s.course_id) return showStatus("error", "Pick a course first.");
+  $("questionFile").click();
+};
+$("questionFile").onchange = async () => {
+  const file = $("questionFile").files[0];
+  $("questionFile").value = "";
+  if (!file) return;
+  const s = settings();
+  if (state.b.questions.length && !await confirmAction("Import a new question list?",
+      "This creates a new draft. The current draft stays saved under the course's Exams tab.", "Import")) return;
+  setBusy(true);
+  $("importQuestionsBtn").innerHTML = '<span class="spinner"></span>Importing…';
+  showStatus("info", '<span class="spinner"></span>Reading premade questions from the uploaded file…');
+  try {
+    const res = await API.importQuestions(s, file);
+    state.b.examId = res.exam_id; state.b.status = "draft"; state.b.courseId = s.course_id;
+    state.b.questions = res.questions.map(q => ({ ...q, approved: false }));
+    $("title").value = res.title; $("numQ").value = res.question_count;
+    $("step-4").classList.remove("hidden"); renderQuestions();
+    showStatus("success", `Imported ${plural(res.question_count, "question")}. Add or review private key points, then approve and publish.`);
+    $("step-4").scrollIntoView({ behavior: "smooth", block: "start" });
+    loadCourses();
+  } catch (e) { showStatus("error", "Import failed: " + esc(e.message)); }
+  finally { $("importQuestionsBtn").textContent = "Import Premade Questions"; setBusy(false); }
 };
 
 function renderQuestions() {

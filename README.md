@@ -3,6 +3,7 @@
 This repository contains a local AI oral-assessment pipeline:
 
 1. A professor creates a course, uploads files or a folder, reviews generated questions, and publishes an exam in the faculty portal.
+   A professor may alternatively import premade questions from DOCX, XLSX, or CSV and review them in the same draft workflow.
 2. Uploaded files are preserved by course and embedded locally into a separate on-disk Qdrant index for that course.
 3. The browser records an answer and Faster Whisper transcribes it.
 4. Ollama retrieves evidence, evaluates the rubric, and creates a follow-up or
@@ -67,6 +68,10 @@ ollama pull nomic-embed-text
 ollama pull llama3
 python pipeline.py
 ```
+
+When local `.venv-tts` and `.venv-wav2lip` environments exist, `pipeline.py`
+selects them automatically for XTTS and Wav2Lip. `MAIN_PYTHON`,
+`WAV2LIP_PYTHON`, and `STT_PYTHON` remain available as explicit overrides.
 
 Create the first faculty account with `faculty-portal/manage_users.py`, then open `http://127.0.0.1:8001/login`. Students sign in on the same page and are redirected to the assessment interface on port 8000.
 

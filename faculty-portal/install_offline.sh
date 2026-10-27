@@ -39,7 +39,7 @@ PIP_WHEEL=$(ls wheels/pip-*.whl | head -1)
 # Running pip straight out of its wheel file means we never need a system pip.
 venv/bin/python "$PIP_WHEEL/pip" install --no-index --find-links wheels --quiet "$PIP_WHEEL"
 venv/bin/python -m pip install --no-index --find-links wheels --quiet -r requirements.txt
-venv/bin/python -c "import fastapi, uvicorn, httpx, pypdf, docx, pptx, multipart" \
+venv/bin/python -c "import fastapi, uvicorn, httpx, pypdf, docx, lxml, pptx, openpyxl, defusedxml, multipart" \
   && green "Python packages installed (offline)."
 
 # ---- 4. Check Ollama ----

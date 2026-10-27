@@ -44,7 +44,15 @@ fi
 "${REPO_DIR}/.venv-wav2lip/bin/python" -c \
     'import torch; print("Wav2Lip CUDA:", torch.cuda.is_available())'
 "${REPO_DIR}/.venv-stt/bin/python" -c \
-    'import ctranslate2; print("CTranslate2 CUDA devices:", ctranslate2.get_cuda_device_count())'
+    'import ctranslate2, docx, lxml, openpyxl, defusedxml; print("CTranslate2 CUDA devices:", ctranslate2.get_cuda_device_count()); print("DOCX/XLSX/CSV question import: OK")'
+
+if "${REPO_DIR}/.venv-stt/bin/python" "${REPO_DIR}/Parser" \
+    "${REPO_DIR}/Question List.docx" >/dev/null; then
+    echo "OK: premade question parser"
+else
+    echo "MISSING: premade question parser dependencies" >&2
+    failed=1
+fi
 
 if command -v ollama >/dev/null 2>&1; then
     ollama list

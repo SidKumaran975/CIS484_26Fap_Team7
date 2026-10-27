@@ -23,6 +23,8 @@ python app.py                 # open http://127.0.0.1:8001/login
 3. **Build an exam**: pick the course, check which of its documents to draw from, set difficulty and question styles, and generate.
 4. **Review**: edit, regenerate or delete questions, approve every one, then publish. Drafts are saved and can be reopened from the course's Exams tab or the dashboard.
 
+Faculty can also choose **Import Premade Questions** in the exam builder. DOCX, XLSX, and CSV files are supported. The Sprint 1 Word format—one question per paragraph—is supported, as are numbered questions and Word tables. Excel and CSV files use `Question`, `Key Points`, and `Follow-up` columns. Imported questions become an ordinary editable draft in SQLite. Add or verify private key points before publishing because those points become the answer-evaluation rubric.
+
 Questions for a course are generated only from that course's documents. The server rejects attempts to mix in documents from another course.
 
 ## Sign-in
@@ -125,6 +127,7 @@ Not in Git (see `.gitignore`): `exam_builder.db` (accounts, sessions, material),
 | GET/POST | `/api/courses/{id}/index` | faculty page | inspect or rebuild that course's semantic index |
 | GET | `/api/courses/{id}/exams` | faculty page | the course's drafts and published exams |
 | POST | `/api/exams/generate` | faculty page | `{course_id, material_ids, ...}` → `exam_id`, draft questions. Empty `material_ids` = all course documents |
+| POST | `/api/exams/import` | faculty page | multipart DOCX, XLSX, or CSV question list → editable draft exam |
 | GET | `/api/exams/{id}/edit` | faculty page | reopen a draft or published exam with its settings |
 | PUT | `/api/exams/{id}` | faculty page | save draft edits without publishing |
 | POST | `/api/exams/{id}/regenerate` | faculty page | one replacement question |

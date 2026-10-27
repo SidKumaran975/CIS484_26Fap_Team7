@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from PIL import Image
+from docx import Document
 
 from rag.config import Settings
 from rag.media import MediaGenerator
@@ -34,6 +35,15 @@ def voice():
         audio.setsampwidth(2)
         audio.setframerate(16000)
         audio.writeframes(b"\x10\x00" * 16000 * 6)
+    return output.getvalue()
+
+
+def question_document():
+    output = io.BytesIO()
+    document = Document()
+    document.add_paragraph("Question 1: What is atomicity?")
+    document.add_paragraph("Key points: all-or-nothing; rollback on failure")
+    document.save(output)
     return output.getvalue()
 
 
@@ -103,6 +113,48 @@ class ProfessorMediaTests(unittest.TestCase):
         self.assertNotEqual(a.get("/api/profile/media/photo").content, b.get("/api/profile/media/photo").content)
         self.assertEqual(student.get("/api/profile/media/voice").status_code, 403)
         self.assertEqual(a.get("/api/profile/media/voice").content, voice())
+
+    def test_faculty_imports_premade_questions_as_draft(self):
+        faculty = self.client("prof_a")
+        course = faculty.post(
+            "/api/courses", json={"code": "DOCX", "name": "Import Test"}
+        ).json()
+        response = faculty.post(
+            "/api/exams/import-docx",
+            data={
+                "course_id": course["id"],
+                "title": "Premade Midterm",
+                "seconds_per_question": "180",
+            },
+            files={
+                "file": (
+                    "questions.docx",
+                    question_document(),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        imported = response.json()
+        self.assertEqual(imported["question_count"], 1)
+        self.assertEqual(imported["questions"][0]["key_points"], ["all-or-nothing", "rollback on failure"])
+        draft = faculty.get(f"/api/exams/{imported['exam_id']}/edit").json()
+        self.assertEqual(draft["status"], "draft")
+        self.assertEqual(draft["questions"][0]["question"], "What is atomicity?")
+
+        csv_response = faculty.post(
+            "/api/exams/import",
+            data={"course_id": course["id"], "title": "CSV Quiz"},
+            files={
+                "file": (
+                    "questions.csv",
+                    b"Question,Key Points\nHow does HTTPS work?,TLS; certificates\n",
+                    "text/csv",
+                )
+            },
+        )
+        self.assertEqual(csv_response.status_code, 200, csv_response.text)
+        self.assertEqual(csv_response.json()["question_count"], 1)
 
     def test_publish_snapshots_replacement_and_ownership(self):
         a, b = self.client("prof_a"), self.client("prof_b")

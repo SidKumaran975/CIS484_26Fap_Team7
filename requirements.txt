@@ -100,3 +100,6 @@ Werkzeug==3.1.8
 yarl==1.24.5
 pypdf==6.21.1
 python-docx==1.2.0
+openpyxl==3.1.5
+et_xmlfile==2.0.0
+defusedxml==0.7.1

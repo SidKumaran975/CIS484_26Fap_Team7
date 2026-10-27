@@ -1,50 +1,35 @@
+#!/usr/bin/env python3
+"""Preview questions that the faculty portal will import from a supported file."""
+
+import argparse
 import json
-import re
 from pathlib import Path
 
-from docx import Document
+from rag.question_import import parse_question_file
 
 
-def load_from_docx(file_path):
-    """Loads all paragraph text from a Word document."""
-    doc = Document(file_path)
-    return "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
-
-
-def parse_questions_to_dict(raw_text):
-    """Extracts questions ending with '?' or starting with line numbers/labels
-
-    and formats them into a structured dictionary.
-    """
-    # Split text by newlines or question marks followed by spaces/newlines
-    raw_lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
-
-    questions_dict = {}
-    q_count = 1
-
-    for line in raw_lines:
-        # Check if line ends with '?' or looks like a prompt/question
-        if line.endswith("?") or re.match(
-            r"^(\d+[\.\)]|Q\d+:?|Question\s*\d+:?)", line, re.IGNORECASE
-        ):
-            # Clean off leading numbers/labels like "1.", "Q1:", "Question 1:"
-            cleaned_question = re.sub(
-                r"^(\d+[\.\)]\s*|Q\d+:?\s*|Question\s*\d+:?\s*)",
-                "",
-                line,
-                flags=re.IGNORECASE,
-            ).strip()
-
-            questions_dict[f"question {q_count}"] = cleaned_question
-            q_count += 1
-
-    return questions_dict
-
-doc_path = Path(__file__).resolve().parent / "Question List.docx"
-raw_doc_text = load_from_docx(doc_path)
-questions_dictionary = parse_questions_to_dict(raw_doc_text)
-
-for key, question_text in questions_dictionary.items():
-    print(
-        f"{key.upper()}: {question_text}"
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Parse a DOCX, XLSX, or CSV question list.")
+    parser.add_argument(
+        "document",
+        nargs="?",
+        type=Path,
+        default=Path(__file__).resolve().parent / "Question List.docx",
     )
+    parser.add_argument("--json", action="store_true", help="Print import-ready JSON.")
+    args = parser.parse_args()
+
+    questions = parse_question_file(args.document.read_bytes(), args.document.name)
+    if args.json:
+        print(json.dumps(questions, indent=2))
+        return
+    for number, question in enumerate(questions, start=1):
+        print(f"QUESTION {number}: {question['question']}")
+        for point in question["key_points"]:
+            print(f"  KEY POINT: {point}")
+        if question.get("follow_up"):
+            print(f"  FOLLOW-UP: {question['follow_up']}")
+
+
+if __name__ == "__main__":
+    main()
