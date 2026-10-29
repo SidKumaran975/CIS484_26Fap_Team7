@@ -1,0 +1,10 @@
+Ollama binary version: 0.40.5
+Official Linux amd64 archive SHA-256:
+dc5eabc292f9949546c90a97c820f924b035e05243b0de13c7f366182562169c
+
+Model: llama3:latest
+Parameters: 8.0B
+Quantization: Q4_0
+Model registry manifest digest:
+365c0bd3c000a25d28ddbf732fe1c6add414de7275464c4e4d1c3b5fcb5d8ad1
+Model size: 4,661,224,676 bytes

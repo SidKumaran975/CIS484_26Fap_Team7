@@ -47,7 +47,8 @@ def ask_password() -> str:
 
 def cmd_add(a):
     password = a.password or (random_password() if a.generate else ask_password())
-    auth.create_user(a.username, a.name or a.username, a.role, password)
+    auth.create_user(a.username, a.name or a.username, a.role, password,
+                     first_name=a.first_name or '',last_name=a.last_name or '',email=a.email or '')
     print(f"Created {a.role} '{auth.normalize(a.username)}'.")
     if a.generate:
         print(f"Generated password: {password}")
@@ -66,7 +67,9 @@ def cmd_import(a):
             continue
         password = (row.get("password") or "").strip() or random_password()
         try:
-            auth.create_user(username, (row.get("name") or "").strip(), a.role, password)
+            auth.create_user(username, (row.get("name") or "").strip(), a.role, password,
+                             first_name=row.get('first_name') or '',last_name=row.get('last_name') or '',
+                             email=row.get('email') or '')
             created.append((auth.normalize(username), (row.get("name") or "").strip(), password))
         except ValueError as e:
             skipped.append(f"{username}: {e}")
@@ -111,6 +114,9 @@ def main():
     s.add_argument("username")
     s.add_argument("--role", choices=auth.ROLES, required=True)
     s.add_argument("--name", help="display name")
+    s.add_argument("--first-name")
+    s.add_argument("--last-name")
+    s.add_argument("--email")
     s.add_argument("--password", help="avoid on shared machines: it lands in shell history")
     s.add_argument("--generate", action="store_true", help="generate a random password and print it")
     s.set_defaults(fn=cmd_add)

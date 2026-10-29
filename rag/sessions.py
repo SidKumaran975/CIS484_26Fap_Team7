@@ -5,6 +5,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from .database import initialize_database, connect
 
 
 class SessionStore:
@@ -15,11 +16,7 @@ class SessionStore:
         self._initialize()
 
     def _connect(self):
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 5000")
-        return connection
+        return connect(self.path)
 
     @contextmanager
     def _connection(self):
@@ -31,70 +28,7 @@ class SessionStore:
             connection.close()
 
     def _initialize(self) -> None:
-        with self._connection() as connection:
-            connection.executescript("""
-                CREATE TABLE IF NOT EXISTS assessment_sessions (
-                    id TEXT PRIMARY KEY,
-                    course_id TEXT NOT NULL,
-                    exam_id TEXT,
-                    student_id INTEGER,
-                    student_username TEXT,
-                    student_name TEXT,
-                    question_index INTEGER NOT NULL DEFAULT 0,
-                    follow_up_count INTEGER NOT NULL DEFAULT 0,
-                    completed INTEGER NOT NULL DEFAULT 0,
-                    current_prompt TEXT NOT NULL DEFAULT '',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    completed_at TEXT
-                );
-                CREATE TABLE IF NOT EXISTS assessment_turns (
-                    id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    question_id TEXT NOT NULL,
-                    turn_number INTEGER NOT NULL,
-                    prompt TEXT NOT NULL,
-                    transcript TEXT NOT NULL,
-                    evaluation_json TEXT NOT NULL,
-                    retrieved_json TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    next_prompt TEXT NOT NULL DEFAULT '',
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY(session_id) REFERENCES assessment_sessions(id)
-                );
-            """)
-            session_columns = {
-                row[1]
-                for row in connection.execute("PRAGMA table_info(assessment_sessions)")
-            }
-            session_migrations = {
-                "exam_id": "TEXT",
-                "student_id": "INTEGER",
-                "student_username": "TEXT",
-                "student_name": "TEXT",
-                "current_prompt": "TEXT NOT NULL DEFAULT ''",
-                "completed_at": "TEXT",
-            }
-            for column, declaration in session_migrations.items():
-                if column not in session_columns:
-                    connection.execute(
-                        f"ALTER TABLE assessment_sessions ADD COLUMN {column} {declaration}"
-                    )
-            turn_columns = {
-                row[1]
-                for row in connection.execute("PRAGMA table_info(assessment_turns)")
-            }
-            if "next_prompt" not in turn_columns:
-                connection.execute(
-                    "ALTER TABLE assessment_turns "
-                    "ADD COLUMN next_prompt TEXT NOT NULL DEFAULT ''"
-                )
-            connection.executescript("""
-                CREATE INDEX IF NOT EXISTS assessment_sessions_exam_created
-                    ON assessment_sessions(exam_id, created_at DESC);
-                CREATE INDEX IF NOT EXISTS assessment_turns_session_number
-                    ON assessment_turns(session_id, turn_number);
-            """)
+        initialize_database(self.path)
 
     def create(
         self,
@@ -159,6 +93,7 @@ class SessionStore:
         follow_up_count: int,
         completed: bool,
         next_prompt: str = "",
+        recording: dict | None = None,
     ) -> str:
         """Save the audit turn and session progress in one transaction."""
         turn_id = str(uuid.uuid4())
@@ -187,6 +122,11 @@ class SessionStore:
                     now,
                 ),
             )
+            if recording:
+                connection.execute(
+                    'INSERT INTO RESP_REC(RecordingID,ResponseID,AudioFilePath,Duration,FileFormat) VALUES(?,?,?,?,?)',
+                    (turn_id,turn_id,recording['path'],recording.get('duration'),recording.get('format')),
+                )
             connection.execute(
                 "UPDATE assessment_sessions SET question_index = ?, "
                 "follow_up_count = ?, completed = ?, current_prompt = ?, "
@@ -225,9 +165,11 @@ class SessionStore:
             output = []
             for session_row in sessions:
                 turns = connection.execute(
-                    "SELECT question_id, turn_number, prompt, transcript, action, "
-                    "next_prompt, created_at FROM assessment_turns "
-                    "WHERE session_id = ? ORDER BY turn_number",
+                    "SELECT t.question_id, t.turn_number, t.prompt, t.transcript, t.action, "
+                    "t.next_prompt, t.created_at, r.RecordingID AS recording_id, "
+                    "r.FileFormat AS recording_format, r.Duration AS recording_duration "
+                    "FROM assessment_turns t LEFT JOIN RESP_REC r ON r.ResponseID=t.id "
+                    "WHERE t.session_id = ? ORDER BY t.turn_number",
                     (session_row["id"],),
                 ).fetchall()
                 messages = []
@@ -248,6 +190,12 @@ class SessionStore:
                                 "question_id": str(turn["question_id"]),
                                 "turn_number": int(turn["turn_number"]),
                                 "action": str(turn["action"]),
+                                "recording": {
+                                    "id": turn["recording_id"],
+                                    "url": f"/api/recordings/{turn['recording_id']}",
+                                    "format": turn["recording_format"],
+                                    "duration": turn["recording_duration"],
+                                } if turn["recording_id"] else None,
                             },
                         ]
                     )

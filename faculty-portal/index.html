@@ -1192,6 +1192,7 @@ async function loadTranscripts() {
       const messages = (s.messages || []).map(m => `
         <div class="transcript-message ${m.speaker === "student" ? "student" : "examiner"}">
           <span class="transcript-speaker">${m.speaker === "student" ? esc(student) : "Examiner"}</span>${esc(m.text || "")}
+          ${m.recording ? `<div><audio controls preload="none" style="max-width:100%;margin-top:10px" aria-label="Student answer recording" src="${esc(m.recording.url)}"></audio><br><a href="${esc(m.recording.url)}" download>Download recording</a></div>` : ""}
         </div>`).join("");
       return `<details class="card transcript-session" ${index === 0 ? "open" : ""}>
         <summary>

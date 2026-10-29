@@ -1,6 +1,9 @@
 import json
 import platform
-import resource
+try:
+    import resource
+except ImportError:
+    resource = None
 import shutil
 import sqlite3
 import subprocess
@@ -12,6 +15,7 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from .database import initialize_database, journal_mode
 
 
 _ACTIVE_RUN: ContextVar["RunRecorder | None"] = ContextVar(
@@ -20,6 +24,9 @@ _ACTIVE_RUN: ContextVar["RunRecorder | None"] = ContextVar(
 
 
 def _max_rss_mb() -> float:
+    if resource is None:
+        import psutil
+        return psutil.Process().memory_info().peak_wset / (1024 * 1024)
     value = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
     # macOS reports bytes; Linux reports KiB.
     divisor = 1024 * 1024 if platform.system() == "Darwin" else 1024
@@ -81,13 +88,15 @@ class GpuPowerSampler:
 
 class AnalyticsStore:
     def __init__(self, path: Path, base_watts: float):
+        initialize_database(path)
         self.path = path
         self.base_watts = max(0.0, base_watts)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(self.path, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA journal_mode=WAL")
-        self.connection.execute("PRAGMA busy_timeout=5000")
+        self.connection.execute(f"PRAGMA journal_mode={journal_mode()}")
+        self.connection.execute("PRAGMA busy_timeout=30000")
+        self.connection.execute("PRAGMA foreign_keys=ON")
         self.lock = threading.Lock()
         with self.connection:
             self.connection.executescript(
@@ -290,8 +299,7 @@ class RunRecorder:
 
     def __enter__(self) -> "RunRecorder":
         self._start = time.perf_counter()
-        usage = resource.getrusage(resource.RUSAGE_SELF)
-        self._cpu_start = usage.ru_utime + usage.ru_stime
+        self._cpu_start = time.process_time()
         self._token = _ACTIVE_RUN.set(self)
         self._sampler.start()
         return self
@@ -299,8 +307,7 @@ class RunRecorder:
     def __exit__(self, exc_type, exc, traceback) -> bool:
         self._sampler.stop()
         duration_seconds = time.perf_counter() - self._start
-        usage = resource.getrusage(resource.RUSAGE_SELF)
-        cpu_seconds = usage.ru_utime + usage.ru_stime - self._cpu_start
+        cpu_seconds = time.process_time() - self._cpu_start
         gpu_watts = self._sampler.average_watts
         base_energy = self.store.base_watts * duration_seconds / 3600
         gpu_energy = gpu_watts * duration_seconds / 3600

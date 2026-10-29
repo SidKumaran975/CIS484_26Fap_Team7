@@ -7,6 +7,7 @@ application instead of generating one fixed greeting during startup.
 
 import logging
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -82,7 +83,14 @@ def preflight() -> None:
 
 
 def main() -> None:
+    # Also run cleanup when a launcher sends a normal termination signal.
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
+    signal.signal(signal.SIGINT, signal.default_int_handler)
     preflight()
+    from rag.bootstrap import prepare_database
+    report = prepare_database()
+    if report:
+        log.info("Migrated legacy databases to %s; backups retained alongside it", report['destination'])
     component_environment = {
         **os.environ,
         "STT_PYTHON": STT_PYTHON,
@@ -100,8 +108,9 @@ def main() -> None:
             "PORT": FACULTY_PORT,
         },
     )
+    student = None
     try:
-        subprocess.run(
+        student = subprocess.Popen(
             [
                 STT_PYTHON,
                 "-m",
@@ -113,17 +122,23 @@ def main() -> None:
                 STT_PORT,
             ],
             cwd=STT_DIR,
-            check=True,
             env=component_environment,
         )
+        returncode = student.wait()
+        if returncode:
+            raise subprocess.CalledProcessError(returncode, student.args)
     except KeyboardInterrupt:
         log.info("Assessment services stopped.")
     finally:
-        faculty.terminate()
-        try:
-            faculty.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            faculty.kill()
+        for service in (student, faculty):
+            if service is None or service.poll() is not None:
+                continue
+            service.terminate()
+            try:
+                service.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                service.kill()
+                service.wait()
 
 
 if __name__ == "__main__":

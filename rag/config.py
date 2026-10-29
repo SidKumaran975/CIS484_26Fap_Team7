@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from .database import database_path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
@@ -22,14 +23,10 @@ class Settings:
         )
     )
     session_db_path: Path = field(
-        default_factory=lambda: _env_path(
-            "SESSION_DB_PATH", ROOT_DIR / "runtime" / "sessions.sqlite3"
-        )
+        default_factory=database_path
     )
     analytics_db_path: Path = field(
-        default_factory=lambda: _env_path(
-            "ANALYTICS_DB_PATH", ROOT_DIR / "runtime" / "analytics.sqlite3"
-        )
+        default_factory=database_path
     )
     media_dir: Path = field(
         default_factory=lambda: _env_path("MEDIA_DIR", ROOT_DIR / "runtime" / "media")
@@ -39,11 +36,6 @@ class Settings:
     top_k: int = int(os.environ.get("RAG_TOP_K", "6"))
     max_follow_ups: int = int(os.environ.get("MAX_FOLLOW_UPS", "1"))
     max_audio_bytes: int = int(os.environ.get("MAX_AUDIO_BYTES", str(20 * 1024 * 1024)))
-    retain_audio: bool = os.environ.get("RETAIN_AUDIO", "false").lower() in {
-        "1",
-        "true",
-        "yes",
-    }
     media_mode: str = os.environ.get("MEDIA_MODE", "avatar").lower()
     media_generation_timeout: int = int(
         os.environ.get("MEDIA_GENERATION_TIMEOUT", "600")

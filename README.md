@@ -1,5 +1,8 @@
 # CIS484 Capstone — Team 7
 
+For this Windows 11 / WSL2 installation, use `Start-Local.cmd` and see
+[LOCAL-SETUP.md](LOCAL-SETUP.md) for the local environment and upgrade record.
+
 This repository contains a local AI oral-assessment pipeline:
 
 1. A professor creates a course, uploads files or a folder, reviews generated questions, and publishes an exam in the faculty portal.
@@ -168,3 +171,10 @@ The production-ready server configuration is maintained on the
 `codex/ubuntu-server-deployment` branch so the existing `main` version remains
 unchanged. Server installation, GPU configuration, Nginx, HTTPS, and systemd
 instructions are in [`deployment/README.md`](deployment/README.md).
+
+
+### Unified database
+
+The oral-assessment application now uses one SQLite database selected by
+`APP_DB_PATH`, with the ERD entities and compatibility views for existing APIs.
+See [DATABASE-SCHEMA.md](DATABASE-SCHEMA.md) for migration, storage, and rollback.

@@ -214,7 +214,12 @@ async def submit_answer(
             "assessment_turn", session_id=session_id
         ) as run:
             run.add_metric("audio_bytes", len(payload))
-            recording_path = RECORDINGS_DIR / f"{uuid.uuid4()}.webm"
+            engine = app.state.manager.engine_for_session(session_id, user["id"])
+            audio_format = content_type.split(';')[0].strip().lower()
+            suffix = {'audio/webm':'.webm','audio/ogg':'.ogg','audio/wav':'.wav',
+                      'audio/x-wav':'.wav','audio/mpeg':'.mp3','audio/mp4':'.m4a',
+                      'audio/flac':'.flac'}.get(audio_format,'.audio')
+            recording_path = RECORDINGS_DIR / f"{uuid.uuid4()}{suffix}"
             recording_path.write_bytes(payload)
             with run.stage("speech_to_text"):
                 transcript = await run_in_threadpool(
@@ -222,11 +227,11 @@ async def submit_answer(
                 )
             run.add_metric("transcript_words", len(transcript.split()))
             with run.stage("assessment_engine"):
-                engine = app.state.manager.engine_for_session(session_id, user["id"])
                 run.add_metric("exam_id", engine.exam_id)
                 run.add_metric("course_id", engine.assessment.course_id)
                 response = await run_in_threadpool(
-                    engine.submit_response, session_id, transcript
+                    engine.submit_response, session_id, transcript,
+                    {"path": str(recording_path), "format": audio_format},
                 )
             run.set_context(question_id=response["question_id"])
             with run.stage("examiner_media"):
@@ -247,9 +252,6 @@ async def submit_answer(
     finally:
         if engine is not None:
             engine.close()
-        if not settings.retain_audio:
-            if "recording_path" in locals():
-                recording_path.unlink(missing_ok=True)
 
 
 @app.get("/api/media/{filename}")

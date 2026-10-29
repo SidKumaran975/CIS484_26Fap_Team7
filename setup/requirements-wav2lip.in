@@ -1,0 +1,6 @@
+# Inference only; no obsolete training dependencies or duplicate OpenCV wheels.
+numpy==1.26.4
+scipy==1.13.1
+librosa==0.11.0
+opencv-python-headless==4.11.0.86
+tqdm>=4.66,<5

@@ -2,30 +2,10 @@ import argparse
 import os
 import sys
 
-import torchaudio
 from TTS.api import TTS
-
-try:
-    torchaudio.set_audio_backend("soundfile")
-except (AttributeError, RuntimeError):
-    pass
-
-# ── PyTorch 2.6+ compatibility shim for Coqui TTS ──────────
-# torch.load now defaults to weights_only=True, but XTTS v2
-# checkpoints contain custom config objects that require
-# weights_only=False.  Monkey-patch to restore the old default.
 import torch
 
-_original_torch_load = torch.load
-
-
-def _patched_torch_load(*args, **kwargs):
-    kwargs.setdefault("weights_only", False)
-    return _original_torch_load(*args, **kwargs)
-
-
-torch.load = _patched_torch_load
-# ────────────────────────────────────────────────────────────
+# Maintained coqui-tts handles checkpoint compatibility internally.
 
 # -------------------------------------------------------------
 # CONFIGURATION
@@ -50,7 +30,7 @@ def synthesize(text: str, output_path: str, reference_audio: str = REFERENCE_AUD
     # 2. LOAD XTTS MODEL
     # Loads the XTTS v2 model into memory (will download weights on the first run)
     print("\nLoading XTTS v2 model...")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = os.environ.get("TTS_DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using {device.upper()} for speech synthesis.")
     tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
 

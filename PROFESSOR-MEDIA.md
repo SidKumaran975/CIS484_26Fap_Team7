@@ -12,15 +12,14 @@ the face is suitable for lip sync or the recording is good for voice cloning.
 
 ## What happens when publishing
 
-Publishing records the faculty account ID and the currently saved media version
-in the database and published exam JSON. Question and follow-up generation use
-that pair. Content versions are immutable, so replacing profile media affects
-future publications; existing exams retain their previous pair. To update an
-existing exam, publish it again. Avoid republishing while students are taking it.
+Each faculty user has one avatar record in AVATAR. Uploading a replacement
+updates that record. Published exams resolve the owner's latest saved avatar,
+so replacements apply to existing exams as well as new exams. Source paths are
+content-addressed to prevent stale generated-media caches; old files may remain
+on disk, but they are not additional avatar records.
 
-Accounts without uploads and older published exams continue using the shared
-BabAvatar.png and Sid.wav. An exam explicitly assigned personal media reports an
-error if those files go missing; it does not silently use another voice.
+Accounts without an uploaded avatar use the shared BabAvatar.png and Sid.wav.
+If the selected avatar's files are missing, rendering reports an error.
 
 The cache includes the selected assets, keeping different professors' videos
 separate. A saved profile is not a rendered preview: the first question still
@@ -37,13 +36,12 @@ needs time for XTTS and Wav2Lip to generate its video.
    ~/.local/share/ai-oral-exam/runtime/faculty-media. Compose uses its existing
    /data volume; the Ubuntu environment example uses /var/lib/capstone.
    For an existing Ubuntu service, add the new variable to its installed env file.
-4. Restart normally. The faculty service automatically creates professor_media
-   and adds nullable professor_id/media_version columns to exams. No existing
-   rows are removed. Restarting again is safe. No accounts are created.
+4. Restart normally. The pipeline initializes/upgrades the unified database.
+   The version 2 migration backs up an existing version 1 file and retains one
+   avatar per user. No accounts are created.
 
-Back up this media directory together with the database and exam JSON. Versions
-used by published exams must remain available. Old versions are deliberately
-retained; this feature does not implement automatic cleanup or profile deletion.
+Back up the media directory together with assessment.sqlite3. Old content files
+may remain on disk; the application always selects the user's current record.
 The media directory is private runtime data, not a static web directory. The
 default directory is Git-ignored. Never commit uploads or a production database.
 

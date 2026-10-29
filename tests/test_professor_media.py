@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 import wave
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -53,6 +54,7 @@ class ProfessorMediaTests(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory()
         cls.root = Path(cls.temp.name)
         cls.environment = patch.dict(os.environ, {
+            "APP_DB_PATH": str(cls.root / "faculty.db"),
             "DB_PATH": str(cls.root / "faculty.db"),
             "FACULTY_EXAMS_DIR": str(cls.root / "exams"),
             "FACULTY_COURSE_STORAGE": str(cls.root / "courses"),
@@ -168,6 +170,10 @@ class ProfessorMediaTests(unittest.TestCase):
         self.assertEqual(saved["examiner"]["media_version"], first)
         second = self.upload(a, "green").json()["version"]
         self.assertNotEqual(first, second)
+        self.assertEqual(a.get(f'/api/exams/{eid}').json()['examiner']['media_version'],second)
+        with self.portal.db() as db:
+            owner = db.execute("SELECT id FROM users WHERE username='prof_a'").fetchone()[0]
+            self.assertEqual(db.execute('SELECT count(*) FROM AVATAR WHERE UserID=?',(owner,)).fetchone()[0],1)
         self.assertEqual(json.loads(exam_path.read_text()), saved)
         self.assertTrue(all(p.is_file() for p in profile_paths(saved["professor_id"], first)))
         with self.portal.db() as db:
@@ -176,6 +182,98 @@ class ProfessorMediaTests(unittest.TestCase):
         self.assertEqual(a.post(f"/api/exams/{eid}/publish", json=payload).status_code, 200)
         self.assertEqual(json.loads(exam_path.read_text())["examiner"]["media_version"], second)
         self.portal.init_db()  # Migration is safe to repeat.
+
+    def test_user_identity_fields_are_saved(self):
+        self.portal.auth.create_user('identity-test','', 'student','test-password-123',
+                                     first_name='Taylor',last_name='Jones',email='taylor@example.test')
+        with self.portal.db() as db:
+            row = db.execute('SELECT FirstName,LastName,Email,DisplayName FROM "USER" WHERE UserName=?',('identity-test',)).fetchone()
+        self.assertEqual(tuple(row),('Taylor','Jones','taylor@example.test','Taylor Jones'))
+
+    def test_user_full_name_is_split_into_first_and_last(self):
+        for index,(display,first,last) in enumerate((
+            ('John Smith','',''),('  John   Smith  ','',''),
+            ('','John Smith',''),('John Smith','John',''),
+        )):
+            username=f'full-name-{index}'
+            self.portal.auth.create_user(username,display,'student','test-password-123',first_name=first,last_name=last)
+            with self.portal.db() as c:
+                row=c.execute('SELECT FirstName,LastName FROM "USER" WHERE UserName=?',(username,)).fetchone()
+            self.assertEqual(tuple(row),('John','Smith'))
+
+    def test_saved_student_audio_can_be_played_only_by_owning_faculty(self):
+        faculty=self.client('prof_a')
+        eid='exam_5555555555'
+        payload=self.seed_exam(faculty,eid)
+        store=self.portal.TRANSCRIPTS
+        session=store.create(payload['course_id'],eid,initial_prompt='Explain TCP')
+        recording=self.root/'student-answer.webm'
+        recording.write_bytes(b'recorded student answer')
+        turn=store.record_turn_and_update(session['id'],'q1','Explain TCP','Reliable delivery',{},[],
+                                         'move_on',1,0,True,recording={'path':str(recording),'format':'audio/webm'})
+        report=faculty.get('/api/transcripts').json()
+        saved=next(s for s in report['sessions'] if s['id']==session['id'])
+        audio=saved['messages'][1]['recording']
+        self.assertEqual(audio['url'],f'/api/recordings/{turn}')
+        response=faculty.get(audio['url'])
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.content,recording.read_bytes())
+        self.assertEqual(self.client('prof_b').get(audio['url']).status_code,404)
+        self.assertEqual(self.client('student').get(audio['url']).status_code,403)
+        with TestClient(self.portal.app) as anonymous:
+            self.assertEqual(anonymous.get(audio['url']).status_code,401)
+
+    def test_student_upload_is_retained_and_linked_after_transcription(self):
+        faculty=self.client('prof_a')
+        eid='exam_6666666666'
+        payload=self.seed_exam(faculty,eid)
+        store=self.portal.TRANSCRIPTS
+        session=store.create(payload['course_id'],eid,initial_prompt='Explain TCP')
+        def submit(session_id,transcript,recording):
+            turn=store.record_turn_and_update(session_id,'q1','Explain TCP',transcript,{},[],
+                                             'move_on',1,0,True,recording=recording)
+            return {'turn_id':turn,'question_id':'q1','completed':True}
+        engine=SimpleNamespace(submit_response=submit,exam_id=eid,
+            assessment=SimpleNamespace(course_id=payload['course_id']),examiner=None,close=lambda:None)
+        directory=self.root/'answer-recordings'
+        with patch.dict(os.environ,{'RECORDINGS_DIR':str(directory),'RETAIN_AUDIO':'false'}), \
+             patch.dict(sys.modules,{'faster_whisper':SimpleNamespace(WhisperModel=object)}):
+            spec=importlib.util.spec_from_file_location('test_student_audio_app',ROOT/'speech-to-text/app.py')
+            student=importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(student)
+        student.app.dependency_overrides[student.require_portal_student]=lambda:{'id':123,'role':'student'}
+        student.app.state.settings=Settings()
+        student.app.state.analytics=self.portal.ANALYTICS
+        student.app.state.manager=SimpleNamespace(engine_for_session=lambda *args:engine)
+        student.app.state.whisper=object()
+        student.app.state.media=None
+        # No context manager: do not start real models in this routing test.
+        client=TestClient(student.app)
+        self.addCleanup(client.close)
+        with patch.object(student,'transcribe_audio',return_value='Reliable delivery'):
+            response=client.post('/api/answers',data={'session_id':session['id']},
+                                 files={'audio':('answer.webm',b'recorded speech','audio/webm')})
+        self.assertEqual(response.status_code,200,response.text)
+        with self.portal.db() as c:
+            row=c.execute('SELECT AudioFilePath,FileFormat FROM RESP_REC WHERE ResponseID=?',
+                          (response.json()['turn_id'],)).fetchone()
+        self.assertEqual(Path(row['AudioFilePath']).read_bytes(),b'recorded speech')
+        self.assertEqual(row['FileFormat'],'audio/webm')
+
+    def test_database_publication_survives_export_loss_and_draft_edits(self):
+        faculty = self.client('prof_a')
+        eid = 'exam_4444444444'
+        payload = self.seed_exam(faculty,eid)
+        self.assertEqual(faculty.post(f'/api/exams/{eid}/publish',json=payload).status_code,200)
+        published = faculty.get(f'/api/exams/{eid}').json()
+        (self.portal.EXAMS_DIR/f'{eid}.json').unlink()
+        with self.portal.db() as c:
+            c.execute('UPDATE exams SET questions=? WHERE id=?', (json.dumps([{'id':'new','question':'draft change'}]),eid))
+        self.assertEqual(faculty.get(f'/api/exams/{eid}').json(),published)
+        student = self.client('student')
+        response = student.get(f'/api/exams/{eid}')
+        self.assertEqual(response.status_code,200)
+        self.assertNotIn('key_points',response.json()['questions'][0])
 
     def test_legacy_publish_and_media_routing_cache(self):
         # A newly created faculty account without uploads still uses legacy media.

@@ -53,3 +53,6 @@ course-materials/materials/*
 
 # macOS
 .DS_Store
+
+/local-backups/
+/setup/logs/

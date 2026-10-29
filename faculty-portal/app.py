@@ -54,6 +54,7 @@ from rag.index import CourseIndex
 from rag.profiles import profile_paths, save_profile
 from rag.question_import import parse_question_file
 from rag.sessions import SessionStore
+from rag.database import database_path, initialize_database, connect, save_avatar, save_publication, read_publication
 
 # ================= CONFIG (override with environment variables) =================
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
@@ -71,7 +72,7 @@ MAX_UPLOAD_MB = 25
 ALLOWED_EXT = {".pdf", ".docx", ".pptx", ".txt", ".md"}
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = Path(os.getenv("DB_PATH", BASE_DIR / "exam_builder.db")).resolve()
+DB_PATH = database_path()
 EXAMS_DIR = Path(os.getenv("FACULTY_EXAMS_DIR", BASE_DIR / "exams")).resolve()
 COURSE_STORAGE_DIR = Path(
     os.getenv("FACULTY_COURSE_STORAGE", ROOT_DIR / "runtime" / "faculty-courses")
@@ -79,12 +80,8 @@ COURSE_STORAGE_DIR = Path(
 COURSE_INDEX_DIR = Path(
     os.getenv("FACULTY_INDEX_STORAGE", ROOT_DIR / "runtime" / "faculty-indexes")
 ).resolve()
-ANALYTICS_DB_PATH = Path(
-    os.getenv("ANALYTICS_DB_PATH", ROOT_DIR / "runtime" / "analytics.sqlite3")
-).resolve()
-SESSION_DB_PATH = Path(
-    os.getenv("SESSION_DB_PATH", ROOT_DIR / "runtime" / "sessions.sqlite3")
-).resolve()
+ANALYTICS_DB_PATH = DB_PATH
+SESSION_DB_PATH = DB_PATH
 EMBED_MODEL = os.getenv("RAG_EMBED_MODEL", "nomic-embed-text")
 ANALYTICS_BASE_WATTS = float(os.getenv("ANALYTICS_BASE_WATTS", "30"))
 STATIC_PAGE = BASE_DIR / "index.html"   # same layout as speech-to-text/
@@ -97,48 +94,11 @@ TRANSCRIPTS = SessionStore(SESSION_DB_PATH)
 
 # ================= DATABASE (SQLite, no setup needed) =================
 def db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA busy_timeout=5000")
-    return conn
-
-
-def _add_column(c, table: str, column: str, decl: str) -> None:
-    """Tiny migration helper: add a column to an existing database if it's missing."""
-    cols = {r[1] for r in c.execute(f"PRAGMA table_info({table})")}
-    if column not in cols:
-        c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    return connect(DB_PATH)
 
 
 def init_db():
-    with db() as c:
-        c.executescript("""
-        CREATE TABLE IF NOT EXISTS courses (
-            id TEXT PRIMARY KEY, owner_id INTEGER NOT NULL, code TEXT NOT NULL, name TEXT NOT NULL,
-            term TEXT, created_at TEXT);
-        CREATE TABLE IF NOT EXISTS materials (
-            id TEXT PRIMARY KEY, filename TEXT, uploaded_at TEXT, characters INTEGER);
-        CREATE TABLE IF NOT EXISTS chunks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, material_id TEXT, idx INTEGER, text TEXT,
-            FOREIGN KEY (material_id) REFERENCES materials(id));
-        CREATE TABLE IF NOT EXISTS exams (
-            id TEXT PRIMARY KEY, course TEXT, title TEXT, settings TEXT, questions TEXT,
-            status TEXT, created_at TEXT, published_at TEXT);
-        """)
-        # Columns added when courses were introduced (keeps older databases working).
-        _add_column(c, "materials", "course_id", "TEXT")
-        _add_column(c, "materials", "size", "INTEGER")
-        _add_column(c, "materials", "relative_path", "TEXT")
-        _add_column(c, "materials", "storage_path", "TEXT")
-        _add_column(c, "exams", "course_id", "TEXT")
-        _add_column(c, "exams", "professor_id", "INTEGER")
-        _add_column(c, "exams", "media_version", "TEXT")
-        c.execute("""CREATE TABLE IF NOT EXISTS professor_media (
-            user_id INTEGER PRIMARY KEY REFERENCES users(id),
-            version TEXT NOT NULL, updated_at TEXT NOT NULL)""")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_materials_course ON materials(course_id)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_exams_course ON exams(course_id)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_chunks_material ON chunks(material_id)")
+    initialize_database(DB_PATH)
 
 
 init_db()
@@ -508,6 +468,25 @@ def assessment_transcripts(
     return {"sessions": sessions}
 
 
+@app.get('/api/recordings/{recording_id}')
+def student_recording(recording_id: str, user: dict = Depends(require_faculty)):
+    """Serve audio only to the faculty member who owns the associated course."""
+    with db() as c:
+        row = c.execute('''SELECT r.AudioFilePath,r.FileFormat FROM RESP_REC r
+            JOIN RESPONSE response ON response.ResponseID=r.ResponseID
+            JOIN INTERACTION i ON i.InteractionID=response.InteractionID
+            JOIN "SESSION" s ON s.SessionID=i.SessionID
+            JOIN EXAM e ON e.ExamID=s.ExamID
+            JOIN COURSE course ON course.CourseID=e.CourseID
+            WHERE r.RecordingID=? AND course.UserID=? AND e.DeletedAt IS NULL''',
+            (recording_id,user['id'])).fetchone()
+    if not row or not Path(row['AudioFilePath']).is_file():
+        raise HTTPException(404,'Recording not found.')
+    path = Path(row['AudioFilePath'])
+    return FileResponse(path,media_type=row['FileFormat'] or 'application/octet-stream',
+                        filename=path.name,content_disposition_type='inline')
+
+
 # ================= COURSES =================
 @app.get("/api/courses")
 def list_courses(user: dict = Depends(require_faculty)):
@@ -611,6 +590,7 @@ async def upload_material(
                      VALUES (?,?,?,?,?,?,?,?)""",
                   (mid, upload_path.name, uploaded, len(text), course_id, len(data),
                    upload_path.as_posix(), str(storage_path)))
+        c.execute('UPDATE COURSE_DOC SET FileType=? WHERE DocumentID=?',(upload_path.suffix.lower(),mid))
         c.executemany("INSERT INTO chunks (material_id, idx, text) VALUES (?,?,?)",
                       [(mid, i, ch) for i, ch in enumerate(chunks)])
     return {"material_id": mid, "filename": upload_path.name, "relative_path": upload_path.as_posix(),
@@ -627,9 +607,7 @@ def delete_material(course_id: str, material_id: str, user: dict = Depends(requi
         ).fetchone()
         if not row:
             raise HTTPException(404, "Document not found.")
-        cur = c.execute("DELETE FROM materials WHERE id=? AND course_id=?", (material_id, course_id))
-        if cur.rowcount == 0:
-            raise HTTPException(404, "Document not found.")
+        c.execute("DELETE FROM materials WHERE id=? AND course_id=?", (material_id, course_id))
         c.execute("DELETE FROM chunks WHERE material_id=?", (material_id,))
         remaining = c.execute(
             "SELECT COUNT(*) FROM materials WHERE course_id=?", (course_id,)
@@ -852,9 +830,7 @@ async def upload_profile_media(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     with db() as c:
-        c.execute("""INSERT INTO professor_media (user_id, version, updated_at) VALUES (?,?,?)
-            ON CONFLICT(user_id) DO UPDATE SET version=excluded.version, updated_at=excluded.updated_at""",
-            (user["id"], version, now()))
+        save_avatar(c, user["id"], version, now())
     return {"ok": True, "version": version}
 
 
@@ -907,13 +883,17 @@ def publish(exam_id: str, s: PublishRequest, user: dict = Depends(require_facult
         ],
     }
     path = EXAMS_DIR / f"{exam_id}.json"
-    path.write_text(json.dumps(exam, indent=2))
     settings = GenerateRequest(**s.model_dump(exclude={"questions"}))
     settings.course = course["code"]
     with db() as c:
         c.execute("UPDATE exams SET title=?, settings=?, questions=?, status='published', published_at=?, professor_id=?, media_version=? WHERE id=?",
                   (s.title, settings.model_dump_json(), json.dumps(s.questions), published,
                    user["id"], profile["version"] if profile else None, exam_id))
+        save_publication(c, exam)
+    # JSON remains a compatible export; the database is authoritative.
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(exam, indent=2))
+    temporary.replace(path)
     display_path = path.relative_to(BASE_DIR) if path.is_relative_to(BASE_DIR) else path
     return {"ok": True, "exam_id": exam_id, "path": str(display_path)}
 
@@ -938,9 +918,11 @@ def list_exams():
 def get_exam(exam_id: str, user: dict = Depends(require_user)):
     check_exam_id(exam_id)
     path = EXAMS_DIR / f"{exam_id}.json"
-    if not path.exists():
+    try:
+        with db() as c:
+            exam = read_publication(c, exam_id)
+    except KeyError:
         raise HTTPException(404, "Exam not found or not published.")
-    exam = json.loads(path.read_text())
     if user["role"] != "faculty":
         exam["questions"] = [{k: q.get(k) for k in STUDENT_FIELDS} for q in exam["questions"]]
     return exam

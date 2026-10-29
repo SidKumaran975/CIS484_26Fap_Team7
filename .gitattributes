@@ -1,0 +1,2 @@
+# WSL bash requires Unix line endings even in a Windows checkout.
+*.sh text eol=lf

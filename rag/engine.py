@@ -76,7 +76,7 @@ class AssessmentEngine:
             "completed": False,
         }
 
-    def submit_response(self, session_id: str, transcript: str) -> dict:
+    def submit_response(self, session_id: str, transcript: str, recording: dict | None = None) -> dict:
         transcript = transcript.strip()
         if not transcript:
             raise ValueError("No speech was detected. Please record the answer again.")
@@ -156,6 +156,7 @@ class AssessmentEngine:
             follow_up_count=progress[1],
             completed=progress[2],
             next_prompt=next_prompt,
+            recording=recording,
         )
         return {
             "session_id": session_id,

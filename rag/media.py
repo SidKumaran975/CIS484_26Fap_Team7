@@ -28,6 +28,9 @@ class MediaGenerator:
             )
         ).expanduser().resolve()
         self.numba_cache = self.settings.media_dir.parent / "numba-cache"
+        self.wav2lip_pads = os.environ.get("WAV2LIP_PADS", "0 10 0 0").split()
+        if len(self.wav2lip_pads) != 4 or any(not part.isdigit() for part in self.wav2lip_pads):
+            raise ValueError("WAV2LIP_PADS must contain four nonnegative integers")
 
     @staticmethod
     def _asset_version(path: Path) -> str:
@@ -79,6 +82,7 @@ class MediaGenerator:
                     self._asset_version(avatar),
                     self._asset_version(self.checkpoint),
                     f"resize:{self.settings.wav2lip_resize_factor}",
+                    "pads:" + " ".join(self.wav2lip_pads),
                 ]
             )
         media_id = sha256("\n".join(cache_parts).encode("utf-8")).hexdigest()[:24]
@@ -127,6 +131,9 @@ class MediaGenerator:
                             str(video_path),
                             "--resize_factor",
                             str(self.settings.wav2lip_resize_factor),
+                            "--pads", *self.wav2lip_pads,
+                            "--face_det_batch_size", os.environ.get("FACE_DET_BATCH_SIZE", "1"),
+                            "--wav2lip_batch_size", os.environ.get("WAV2LIP_BATCH_SIZE", "8"),
                         ],
                         self.wav2lip_dir,
                         "Wav2Lip avatar generation",

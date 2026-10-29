@@ -38,6 +38,7 @@ services:
       MEDIA_GENERATION_TIMEOUT: ${MEDIA_GENERATION_TIMEOUT:-900}
       WAV2LIP_RESIZE_FACTOR: ${WAV2LIP_RESIZE_FACTOR:-3}
       COQUI_TOS_AGREED: ${COQUI_TOS_AGREED:-0}
+      APP_DB_PATH: /data/assessment.sqlite3
       DB_PATH: /data/exam_builder.db
       FACULTY_EXAMS_DIR: /data/exams
       FACULTY_COURSE_STORAGE: /data/faculty-courses
@@ -47,7 +48,7 @@ services:
       SESSION_DB_PATH: /data/sessions.sqlite3
       MEDIA_DIR: /data/media
       RECORDINGS_DIR: /data/recordings
-      RETAIN_AUDIO: ${RETAIN_AUDIO:-false}
+
       COOKIE_SECURE: ${COOKIE_SECURE:-0}
     ports:
       - "8000:8000"

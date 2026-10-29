@@ -43,7 +43,11 @@ class CourseTests(unittest.TestCase):
                         evaluation_json TEXT NOT NULL, retrieved_json TEXT NOT NULL,
                         action TEXT NOT NULL, created_at TEXT NOT NULL);
                 """)
-            store = SessionStore(path)
+            connection.close()
+            from rag.migration import migrate
+            unified = Path(directory) / "unified.sqlite3"
+            migrate([path], unified, Path(directory) / "backups", apply=True)
+            store = SessionStore(unified)
             session = store.create(
                 "crs_test", "exam_0123456789", student_name="Migrated Student",
                 initial_prompt="Migrated prompt",

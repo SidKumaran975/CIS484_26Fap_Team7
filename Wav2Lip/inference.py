@@ -6,6 +6,7 @@ from tqdm import tqdm
 from glob import glob
 import torch, face_detection
 from models import Wav2Lip
+import zipfile
 
 parser = argparse.ArgumentParser(description='Inference code to lip-sync videos in the wild using Wav2Lip models')
 
@@ -180,6 +181,11 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print('Using {} for inference.'.format(device))
 
 def _load(checkpoint_path):
+	if zipfile.is_zipfile(checkpoint_path):
+		with zipfile.ZipFile(checkpoint_path) as archive:
+			is_script = any(name.endswith('/constants.pkl') for name in archive.namelist())
+		if is_script:
+			return {"state_dict": torch.jit.load(checkpoint_path, map_location=device).state_dict()}
 	if device == 'cuda':
 		checkpoint = torch.load(checkpoint_path, weights_only=False)
 	else:

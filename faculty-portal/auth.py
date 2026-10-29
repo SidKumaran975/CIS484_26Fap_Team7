@@ -19,6 +19,7 @@ import hmac
 import os
 import secrets
 import sqlite3
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,7 +29,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = Path(os.getenv("DB_PATH", BASE_DIR / "exam_builder.db"))
+sys.path.insert(0, str(BASE_DIR.parent)) if str(BASE_DIR.parent) not in sys.path else None
+from rag.database import database_path, initialize_database, connect
+DB_PATH = database_path()
 
 SESSION_COOKIE = "examportal_session"
 SESSION_HOURS = float(os.getenv("SESSION_HOURS", "8"))
@@ -44,28 +47,11 @@ SCRYPT_N, SCRYPT_R, SCRYPT_P = 2 ** 14, 8, 1
 
 # ================= DATABASE =================
 def _db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA busy_timeout=5000")
-    return conn
+    return connect(DB_PATH)
 
 
 def init_auth_db():
-    with _db() as c:
-        c.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            display_name TEXT NOT NULL,
-            role TEXT NOT NULL CHECK (role IN ('faculty', 'student')),
-            pw_hash TEXT NOT NULL,
-            created_at TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS sessions (
-            token_hash TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            expires_at REAL NOT NULL);
-        """)
-
+    initialize_database(DB_PATH)
 
 init_auth_db()
 
@@ -98,7 +84,8 @@ def normalize(username: str) -> str:
     return username.strip().lower()
 
 
-def create_user(username: str, display_name: str, role: str, password: str) -> None:
+def create_user(username: str, display_name: str, role: str, password: str, *,
+                first_name: str = "", last_name: str = "", email: str = "") -> None:
     username = normalize(username)
     if role not in ROLES:
         raise ValueError(f"role must be one of {ROLES}")
@@ -106,11 +93,26 @@ def create_user(username: str, display_name: str, role: str, password: str) -> N
         raise ValueError("username may only contain letters, numbers, '.', '_' and '-'")
     if len(password) < MIN_PASSWORD:
         raise ValueError(f"password must be at least {MIN_PASSWORD} characters")
+    first_name, last_name, email = first_name.strip(), last_name.strip(), email.strip()
+    full_name = ' '.join(display_name.split())
+    # Accept a full name through either the legacy --name input or a first-name
+    # input with the surname omitted. Explicit separate surnames take priority.
+    if not last_name and len(first_name.split()) > 1:
+        first_name, last_name = first_name.split(maxsplit=1)
+    elif not last_name and full_name and full_name != username:
+        parts = full_name.split(maxsplit=1)
+        if not first_name:
+            first_name = parts[0]
+        if len(parts) == 2 and first_name == parts[0]:
+            last_name = parts[1]
+    display_name = ' '.join(part for part in (first_name,last_name) if part) or display_name.strip() or username
     with _db() as c:
         try:
             c.execute("INSERT INTO users (username, display_name, role, pw_hash, created_at) VALUES (?,?,?,?,?)",
                       (username, display_name.strip() or username, role, hash_password(password),
                        datetime.now(timezone.utc).isoformat()))
+            c.execute('UPDATE "USER" SET FirstName=?,LastName=?,Email=? WHERE UserName=?',
+                      (first_name or None,last_name or None,email or None,username))
         except sqlite3.IntegrityError:
             raise ValueError(f"user '{username}' already exists")
 
@@ -119,9 +121,9 @@ def set_password(username: str, password: str) -> None:
     if len(password) < MIN_PASSWORD:
         raise ValueError(f"password must be at least {MIN_PASSWORD} characters")
     with _db() as c:
-        cur = c.execute("UPDATE users SET pw_hash=? WHERE username=?", (hash_password(password), normalize(username)))
-        if cur.rowcount == 0:
+        if not c.execute("SELECT id FROM users WHERE username=?", (normalize(username),)).fetchone():
             raise ValueError(f"no user '{username}'")
+        c.execute("UPDATE users SET pw_hash=? WHERE username=?", (hash_password(password), normalize(username)))
         # A password change signs that user out everywhere.
         c.execute("DELETE FROM sessions WHERE user_id=(SELECT id FROM users WHERE username=?)", (normalize(username),))
 

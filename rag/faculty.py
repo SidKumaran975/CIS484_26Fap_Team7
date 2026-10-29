@@ -17,12 +17,11 @@ from .config import ROOT_DIR, Settings
 from .engine import AssessmentEngine
 from .schemas import AssessmentDefinition, Question, RubricCriterion
 from .sessions import SessionStore
+from .database import database_path, connect, read_publication
 
 SESSION_COOKIE = "examportal_session"
 FACULTY_DIR = ROOT_DIR / "faculty-portal"
-FACULTY_DB_PATH = Path(
-    os.environ.get("FACULTY_DB_PATH", FACULTY_DIR / "exam_builder.db")
-).resolve()
+FACULTY_DB_PATH = database_path()
 FACULTY_EXAMS_DIR = Path(
     os.environ.get("FACULTY_EXAMS_DIR", FACULTY_DIR / "exams")
 ).resolve()
@@ -37,10 +36,7 @@ FACULTY_INDEX_STORAGE = Path(
 def _connect() -> sqlite3.Connection:
     if not FACULTY_DB_PATH.is_file():
         raise HTTPException(503, "The faculty portal has not been initialized yet.")
-    connection = sqlite3.connect(FACULTY_DB_PATH)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA busy_timeout=5000")
-    return connection
+    return connect(FACULTY_DB_PATH)
 
 
 def current_portal_user(request: Request) -> dict | None:
@@ -90,9 +86,8 @@ def load_published_exam(exam_id: str) -> tuple[dict, Path]:
     if not re.fullmatch(r"exam_[0-9a-f]{10}", exam_id):
         raise KeyError(exam_id)
     path = FACULTY_EXAMS_DIR / f"{exam_id}.json"
-    if not path.is_file():
-        raise KeyError(exam_id)
-    return json.loads(path.read_text(encoding="utf-8")), path
+    with _connect() as c:
+        return read_publication(c, exam_id), path
 
 
 def assessment_from_exam(exam: dict) -> AssessmentDefinition:
