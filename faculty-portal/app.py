@@ -89,6 +89,7 @@ EMBED_MODEL = os.getenv("RAG_EMBED_MODEL", "nomic-embed-text")
 ANALYTICS_BASE_WATTS = float(os.getenv("ANALYTICS_BASE_WATTS", "30"))
 STATIC_PAGE = BASE_DIR / "index.html"   # same layout as speech-to-text/
 LOGIN_PAGE = BASE_DIR / "login.html"
+REPORT_PAGE = BASE_DIR / "report.html"
 EXAMS_DIR.mkdir(parents=True, exist_ok=True)
 COURSE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 COURSE_INDEX_DIR.mkdir(parents=True, exist_ok=True)
@@ -506,6 +507,43 @@ def assessment_transcripts(
     for session in sessions:
         session.update(exams.get(str(session["exam_id"]), {}))
     return {"sessions": sessions}
+
+
+# ================= ATTAINMENT REPORT =================
+@app.get("/reports/{session_id}")
+def attainment_report_page(request: Request):
+    user = current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    if user["role"] != "faculty":
+        return RedirectResponse(home_for(user, request), status_code=303)
+    return FileResponse(REPORT_PAGE, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/reports/{session_id}")
+def attainment_report(session_id: str, user: dict = Depends(require_faculty)):
+    """One student's attainment report, only for exams the professor owns."""
+    from rag.faculty import load_published_exam
+    from rag.report import build_attainment_report, load_turns
+
+    try:
+        session = TRANSCRIPTS.get(session_id)
+    except KeyError:
+        raise HTTPException(404, "Report not found.")
+    exam_id = str(session.get("exam_id") or "")
+    with db() as connection:
+        owned = connection.execute(
+            """SELECT e.id FROM exams e JOIN courses co ON co.id=e.course_id
+               WHERE e.id=? AND co.owner_id=?""",
+            (exam_id, user["id"]),
+        ).fetchone()
+    if not owned:
+        raise HTTPException(404, "Report not found.")
+    try:
+        exam, _ = load_published_exam(exam_id)
+    except KeyError:
+        raise HTTPException(404, "The published exam for this report is missing.")
+    return build_attainment_report(exam, session, load_turns(TRANSCRIPTS, session_id))
 
 
 # ================= COURSES =================
