@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Attainment Report · AI Oral Exam</title>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#0f0d14; --panel:#17131f; --panel-2:#20182b;
+  --purple-bright:#8a4dcc; --purple-deep:#450084; --gold:#cbb677;
+  --text:#f6f2fb; --muted:#b8adc6; --line:#352943;
+}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;color:var(--text);background:radial-gradient(circle at 10% 0%,rgba(111,53,165,.18),transparent 30%),var(--bg);
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.5}
+main{max-width:1240px;margin:0 auto;padding:28px 20px 60px}
+a{color:#c9a6e8}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.eyebrow{color:var(--gold);text-transform:uppercase;letter-spacing:.12em;font-size:11px;font-weight:850}
+h1{margin:6px 0 4px;font-size:30px;letter-spacing:-.03em}
+.sub{color:var(--muted);font-size:14px}
+.actions{display:flex;gap:8px}
+.btn{border:1px solid var(--line);background:#241c30;color:var(--text);padding:9px 13px;border-radius:10px;font-weight:750;font-size:13px;cursor:pointer;text-decoration:none}
+.btn:hover{filter:brightness(1.15)}
+.stats{display:flex;gap:12px;flex-wrap:wrap;margin:6px 0 22px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 16px;min-width:150px}
+.stat b{display:block;font-size:22px}
+.stat span{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:800}
+.note{color:var(--muted);font-size:13px;margin:0 0 14px}
+.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:16px;background:var(--panel)}
+table{width:100%;border-collapse:collapse;min-width:900px}
+th{position:sticky;top:0;background:var(--panel-2);text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--gold);padding:12px 14px;border-bottom:1px solid var(--line)}
+td{vertical-align:top;padding:14px;border-bottom:1px solid var(--line);font-size:14px}
+tr.group-start td{border-top:2px solid #553570}
+td.essential{width:22%;background:rgba(32,24,43,.55)}
+td.attain{width:30%;background:rgba(32,24,43,.55)}
+.qnum{color:var(--muted);font-size:12px;font-weight:800;display:block;margin-bottom:4px}
+.tag{display:inline-block;margin-top:6px;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:800;border:1px solid}
+.tag.same{border-color:#553570;background:#251733;color:#c9a6e8}
+.tag.rephrased{border-color:#5f5232;background:#2a2415;color:#dfc984}
+.tag.follow{border-color:#2f4a6b;background:#152233;color:#9cc4f0}
+.response{white-space:pre-wrap}
+.summary{font-weight:800;margin-bottom:8px}
+.points{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.point{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:start}
+.status{padding:3px 8px;border-radius:999px;font-size:11px;font-weight:850;white-space:nowrap;border:1px solid}
+.s-met{border-color:#245c45;background:#11281e;color:#75d6a7}
+.s-partial{border-color:#5f5232;background:#2a2415;color:#dfc984}
+.s-not_met{border-color:#6b2d3d;background:#2c151d;color:#ffb9c6}
+.s-insufficient_evidence,.s-not_assessed{border-color:var(--line);background:#1b1623;color:var(--muted)}
+details{font-size:12px;color:var(--muted);margin-top:2px}
+summary{cursor:pointer}
+.flag{margin-top:10px;padding:8px 10px;border-radius:10px;font-size:12px;border:1px solid #5f5232;background:#2a2415;color:#dfc984}
+.flag.red{border-color:#6b2d3d;background:#2c151d;color:#ffb9c6}
+.empty{color:var(--muted);font-style:italic}
+#status{padding:40px;text-align:center;color:var(--muted)}
+@media print{
+  :root{color-scheme:light}
+  body{background:#fff;color:#000}
+  .actions{display:none}
+  .stat,.table-wrap,td.essential,td.attain,th{background:#fff!important;color:#000}
+  th{color:#000;position:static}
+  .table-wrap{overflow:visible}
+  table{min-width:0}
+  details{display:block}
+  details>*{display:block}
+}
+@media (max-width:600px){h1{font-size:24px}main{padding:20px 16px 40px}}
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <div>
+      <div class="eyebrow">Attainment report</div>
+      <h1 id="student">Loading…</h1>
+      <div class="sub" id="meta"></div>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/">Back to portal</a>
+      <button class="btn" onclick="window.print()">Print</button>
+    </div>
+  </div>
+  <div id="status">Loading report…</div>
+  <div id="report" hidden>
+    <div class="stats" id="stats"></div>
+    <p class="note">Attainment combines every turn for an essential question: a key point counts as met if the student met it in the original answer or in a follow-up. The AI grading supports your judgment; the grade is yours.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Essential question</th><th>Actual question</th><th>Response</th><th>Attainment</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const when = s => { if (!s) return ""; const d = new Date(s); return isNaN(d) ? "" : d.toLocaleString(); };
+
+function phrasingTag(text) {
+  const cls = text === "Asked as written" ? "same" : text === "Rephrased" ? "rephrased" : "follow";
+  return `<span class="tag ${cls}">${esc(text)}</span>`;
+}
+
+function attainmentCell(a) {
+  const points = a.key_points.map(p => `
+    <li class="point">
+      <span class="status s-${esc(p.status)}">${esc(p.status_label)}</span>
+      <div>${esc(p.text)}
+        ${p.evidence || p.reason ? `<details><summary>Why${p.turn_number ? ` (turn ${p.turn_number})` : ""}</summary>
+          ${p.evidence ? `<div>Student said: “${esc(p.evidence)}”</div>` : ""}
+          ${p.reason ? `<div>${esc(p.reason)}</div>` : ""}</details>` : ""}
+      </div>
+    </li>`).join("");
+  const flags = [];
+  if (a.uncertainty === "high" || a.uncertainty === "medium")
+    flags.push(`<div class="flag">AI grading uncertainty: ${esc(a.uncertainty)}. Review the response before grading.</div>`);
+  if (a.misconceptions.length)
+    flags.push(`<div class="flag red">Possible misconception: ${a.misconceptions.map(esc).join("; ")}</div>`);
+  return `<div class="summary">${esc(a.summary)}</div><ul class="points">${points}</ul>${flags.join("")}`;
+}
+
+function render(r) {
+  document.title = `${r.student_name} · Attainment Report`;
+  $("student").textContent = r.student_name;
+  $("meta").textContent = [r.course, r.exam_title, when(r.started_at), r.completed ? "Complete" : "In progress"].filter(Boolean).join(" · ");
+  const t = r.totals;
+  $("stats").innerHTML = `
+    <div class="stat"><span>Questions reached</span><b>${t.questions_reached} / ${t.questions}</b></div>
+    <div class="stat"><span>Key points met</span><b>${t.key_points_met} / ${t.key_points}</b></div>`;
+  $("rows").innerHTML = r.questions.map(q => {
+    const essential = `<td class="essential" rowspan="${Math.max(q.exchanges.length, 1)}"><span class="qnum">Question ${q.number}</span>${esc(q.essential_question)}</td>`;
+    const attain = `<td class="attain" rowspan="${Math.max(q.exchanges.length, 1)}">${attainmentCell(q.attainment)}</td>`;
+    if (!q.exchanges.length)
+      return `<tr class="group-start">${essential}<td colspan="2" class="empty">Not reached in this session.</td>${attain}</tr>`;
+    return q.exchanges.map((e, i) => `<tr${i === 0 ? ' class="group-start"' : ""}>
+      ${i === 0 ? essential : ""}
+      <td>${esc(e.actual_question)}<br>${phrasingTag(e.phrasing)}</td>
+      <td class="response">${e.response ? esc(e.response) : '<span class="empty">No speech detected.</span>'}</td>
+      ${i === 0 ? attain : ""}
+    </tr>`).join("");
+  }).join("");
+  $("status").hidden = true;
+  $("report").hidden = false;
+}
+
+(async () => {
+  const id = decodeURIComponent(location.pathname.split("/").pop());
+  try {
+    const res = await fetch(`/api/reports/${encodeURIComponent(id)}`);
+    if (res.status === 401) { location.href = "/login"; return; }
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((data && data.detail) || res.statusText);
+    render(data);
+  } catch (e) {
+    $("student").textContent = "Report unavailable";
+    $("status").textContent = e.message;
+  }
+})();
+</script>
+</body>
+</html>
