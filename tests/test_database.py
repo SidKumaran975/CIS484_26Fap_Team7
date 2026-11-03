@@ -44,14 +44,14 @@ class DatabaseTests(unittest.TestCase):
         initialize_database(path)
         with connect(path) as c:
             tables={r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            self.assertFalse({'PROFESSOR','STUDENT','PROF_DEPART','STUDENT_COURSE'} & tables)
-            self.assertTrue({'USER_COURSE','USER_DEPART'} <= tables)
+            self.assertFalse({'PROFESSOR','PROF_DEPART','STUDENT_COURSE','AVATAR','USER_COURSE','USER_DEPART'} & tables)
+            self.assertTrue({'STUDENT','INSTRUCTOR','SECTION','STUDENT_SEC','QUEST_BANK','QUEST_ESS','RECORDING','CLIP_RESP','CLIP_TRANS'} <= tables)
             self.assertEqual(tuple(c.execute('SELECT FirstName,LastName,Email,PasswordHash FROM "USER" WHERE UserID=1').fetchone()),
                              ('Taylor','Jones','taylor@example.test','same-hash'))
             self.assertEqual(tuple(c.execute('SELECT UserID,FaceImagePath FROM AVATAR').fetchone()),(1,'new.png'))
             self.assertEqual(c.execute('SELECT UserID FROM COURSE').fetchone()[0],1)
-            self.assertEqual(c.execute('SELECT UserID FROM "SESSION"').fetchone()[0],2)
-            self.assertEqual(c.execute('SELECT max(version) FROM schema_migrations').fetchone()[0],2)
+            self.assertEqual(c.execute('SELECT StudentID FROM "SESSION"').fetchone()[0],2)
+            self.assertEqual(c.execute('SELECT max(version) FROM schema_migrations').fetchone()[0],3)
             self.assertEqual(c.execute('PRAGMA foreign_key_check').fetchall(),[])
         self.assertEqual(len(list((self.root/'database-backups').glob('before-erd-v2-*.sqlite3'))),1)
 

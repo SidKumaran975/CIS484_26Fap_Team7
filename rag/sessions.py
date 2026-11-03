@@ -124,8 +124,13 @@ class SessionStore:
             )
             if recording:
                 connection.execute(
-                    'INSERT INTO RESP_REC(RecordingID,ResponseID,AudioFilePath,Duration,FileFormat) VALUES(?,?,?,?,?)',
-                    (turn_id,turn_id,recording['path'],recording.get('duration'),recording.get('format')),
+                    'INSERT INTO RECORDING(RecordingID,SessionID,RecordingPath) VALUES(?,?,?)',
+                    (turn_id,session_id,recording['path']),
+                )
+                connection.execute(
+                    '''UPDATE CLIP_RESP SET RecordingID=?,AudioFilePath=?,Duration=?,FileFormat=?,LegacyRecordingID=?
+                       WHERE RespClip=?''',
+                    (turn_id,recording['path'],recording.get('duration'),recording.get('format'),turn_id,turn_id),
                 )
             connection.execute(
                 "UPDATE assessment_sessions SET question_index = ?, "
@@ -168,7 +173,10 @@ class SessionStore:
                     "SELECT t.question_id, t.turn_number, t.prompt, t.transcript, t.action, "
                     "t.next_prompt, t.created_at, r.RecordingID AS recording_id, "
                     "r.FileFormat AS recording_format, r.Duration AS recording_duration "
-                    "FROM assessment_turns t LEFT JOIN RESP_REC r ON r.ResponseID=t.id "
+                    "FROM assessment_turns t LEFT JOIN RESP_REC r ON r.ResponseID=("
+                    "SELECT c.RespClip FROM CLIP_RESP c WHERE c.InteractionID=t.id "
+                    "AND EXISTS(SELECT 1 FROM CLIP_TRANS ct WHERE ct.RespClipID=c.RespClip AND ct.Evaluation IS NOT NULL) "
+                    "ORDER BY c.AnsweredAt DESC,c.RespClip DESC LIMIT 1) "
                     "WHERE t.session_id = ? ORDER BY t.turn_number",
                     (session_row["id"],),
                 ).fetchall()

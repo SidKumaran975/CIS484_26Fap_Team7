@@ -15,7 +15,8 @@ The original WSL database is retained as a historical copy and is no longer the
 normal launcher's write target. A consistent backup and transfer report are in
 `local-backups/database-to-windows-20261029-144416-854617/`. The transfer included
 committed WAL contents, preserved all schema/data, and passed integrity and
-foreign-key checks. The database already contains schema version 2.
+foreign-key checks. The November 3 ERD upgrade uses this same file at schema
+version 3; see DATABASE-SCHEMA.md for its tables, corrections, and backups.
 
 The historical paths and migration status below describe the earlier setup.
 
@@ -25,15 +26,18 @@ The historical paths and migration status below describe the earlier setup.
 
 Updated October 29, 2026 through origin/main at 5162888 (including deployment branch 893f686), preserving Windows/WSL compatibility changes on codex/windows-exam-upgrade. Local changes are backed up in Git stashes. Question-import tests (7), database checks (5), and syntax checks passed. WSL access was denied during this update, so Linux dependency installation and full runtime verification remain pending. Install openpyxl==3.1.5 and defusedxml==0.7.1 into the main WSL environment before launching. The lockfile and real-model verification below describe the earlier October 17 installation.
 
-## Revised ERD (schema version 2)
+## Revised ERD (schema version 3, November 3)
 
-USER now owns first/last name and email. STUDENT and PROFESSOR tables are removed;
-COURSE, SESSION, AVATAR, USER_COURSE, and USER_DEPART reference USER directly.
-Each user has one avatar; replacements apply to existing exams. On the next
-restart, existing version 1 databases are backed up and upgraded automatically.
-See DATABASE-SCHEMA.md. This chat could not execute WSL to apply the live upgrade.
+USER retains identity and login data. INSTRUCTOR and STUDENT share their primary
+keys with USER; INSTRUCTOR stores the face/voice profile. SECTION includes
+CourseID, with enrollment in STUDENT_SEC. SESSION links its student, instructor,
+and exam; INTERACTION derives its exam through SESSION. QUEST_BANK/QUEST_ESS and
+RECORDING/CLIP_RESP/CLIP_TRANS replace the older question/response tables, whose
+names remain compatibility views. Typed answers do not require a recording.
+Existing version 1/2 databases are backed up and upgraded before service startup.
+See DATABASE-SCHEMA.md for migration, validation, and recovery details.
 
-## Unified relational database (October 29)
+## Historical initial unification notes (October 29)
 
 The next normal `Start-Local.cmd` launch migrates the legacy faculty, session,
 and analytics stores before starting either web service. The unified database

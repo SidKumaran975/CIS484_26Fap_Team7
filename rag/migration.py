@@ -137,7 +137,7 @@ def migrate(sources: list[Path], destination: Path, backup_dir: Path, *, apply=F
                 unresolved = target.execute('''SELECT SessionID,LegacyCourseID,LegacyExamID,LegacyStudentID FROM "SESSION"
                   WHERE (LegacyCourseID IS NOT NULL AND CourseID IS NULL)
                   OR (LegacyExamID IS NOT NULL AND ExamID IS NULL)
-                  OR (LegacyStudentID IS NOT NULL AND UserID IS NULL)''').fetchall()
+                  OR (LegacyStudentID IS NOT NULL AND StudentID IS NULL)''').fetchall()
                 report['unresolved_links'] = [dict(r) for r in unresolved]
                 violations = target.execute('PRAGMA foreign_key_check').fetchall()
                 if violations:
