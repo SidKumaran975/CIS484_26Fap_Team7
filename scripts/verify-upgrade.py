@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 
 import httpx
 
@@ -106,11 +107,18 @@ def main():
                     subprocess.run(["ffmpeg", "-v", "error", "-i", str(ROOT / "text-to-speech-model/Sid.wav"),
                                     "-c:a", "libopus", str(answer)], check=True)
                     turns = []
+                    now = lambda: datetime.now(timezone.utc).isoformat()
+                    events = STUDENT + f"/api/sessions/{session['session_id']}/recording-events"
+                    request(student,"POST",events,json={"event":"recording_start","timestamp":now()})
+                    interaction_id=session['interaction_id']
                     for number in range(2):
+                        for event in ('question_start','question_end'):
+                            request(student,"POST",events,json={"event":event,"timestamp":now(),"interaction_id":interaction_id})
                         with answer.open("rb") as source:
                             turn = request(student, "POST", STUDENT + "/api/answers",
                                            files={"audio": ("answer.webm", source, "audio/webm")},
-                                           data={"session_id": session["session_id"]}).json()
+                                           data={"session_id": session["session_id"],"interaction_id":interaction_id,
+                                                 "response_start":now(),"response_end":now()}).json()
                         assert turn["transcript"].strip() and turn["evaluation"]["criterion_results"]
                         turns.append(turn)
                         if turn["completed"]:
@@ -118,8 +126,19 @@ def main():
                         assert turn["action"] in {"probe", "clarify", "deepen"}
                         assert turn["media_url"].endswith(".mp4")
                         request(student, "GET", STUDENT + turn["media_url"])
+                        interaction_id=turn['interaction_id']
                     assert len(turns) == 2 and turns[-1]["completed"]
                     assert turns[-1]["action"] == "move_on" and turns[-1]["media_url"] is None
+                    # Synthetic video exercises the storage API in this CLI test.
+                    # Real screen/webcam capture is tested separately in a browser.
+                    sample=temp/'diagnostic-full.webm'
+                    subprocess.run(['ffmpeg','-v','error','-f','lavfi','-i','color=c=black:s=320x240:r=10',
+                        '-f','lavfi','-i','anullsrc=r=48000:cl=mono','-t','1','-c:v','libvpx','-c:a','libopus',str(sample)],check=True)
+                    with sample.open('rb') as source:
+                        request(student,'POST',STUDENT+f"/api/sessions/{session['session_id']}/recording-chunks/0",
+                            files={'video':('segment.webm',source,'video/webm')})
+                    request(student,'POST',events,json={'event':'recording_end','timestamp':now(),'chunk_count':1})
+                    request(faculty,'GET',FACULTY+f"/api/full-recordings/{session['session_id']}")
                     analytics = request(faculty, "GET", FACULTY + "/api/analytics/summary").json()
                     assert analytics["run_count"] >= 6 and analytics["input_tokens"] > 0
                     with sqlite3.connect(temp / "assessment.sqlite3") as db:

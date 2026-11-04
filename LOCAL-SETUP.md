@@ -1,3 +1,11 @@
+# Current recording database (schema version 4)
+
+The recording/interaction implementation supersedes the historical v3 notes
+below. See [RECORDING-ERD.md](RECORDING-ERD.md) for migration instructions,
+field mappings, recording permissions, and verification. The database location
+is unchanged. Stop both services before upgrading and retain the automatic
+backup. Live exams require screen video with system audio, webcam, and microphone.
+
 # Current database location
 
 The live database was transferred and verified on October 29, 2026:

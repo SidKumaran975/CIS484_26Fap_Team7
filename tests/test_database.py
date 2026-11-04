@@ -44,14 +44,14 @@ class DatabaseTests(unittest.TestCase):
         initialize_database(path)
         with connect(path) as c:
             tables={r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            self.assertFalse({'PROFESSOR','PROF_DEPART','STUDENT_COURSE','AVATAR','USER_COURSE','USER_DEPART'} & tables)
-            self.assertTrue({'STUDENT','INSTRUCTOR','SECTION','STUDENT_SEC','QUEST_BANK','QUEST_ESS','RECORDING','CLIP_RESP','CLIP_TRANS'} <= tables)
+            self.assertFalse({'PROFESSOR','PROF_DEPART','STUDENT_COURSE'} & tables)
+            self.assertTrue({'STUDENT','INSTRUCTOR','SECTION','STUDENT_SEC','QUEST_ESS','QUEST_BANK','RECORDING','CLIP_RESP','CLIP_TRANS'} <= tables)
             self.assertEqual(tuple(c.execute('SELECT FirstName,LastName,Email,PasswordHash FROM "USER" WHERE UserID=1').fetchone()),
                              ('Taylor','Jones','taylor@example.test','same-hash'))
             self.assertEqual(tuple(c.execute('SELECT UserID,FaceImagePath FROM AVATAR').fetchone()),(1,'new.png'))
             self.assertEqual(c.execute('SELECT UserID FROM COURSE').fetchone()[0],1)
-            self.assertEqual(c.execute('SELECT StudentID FROM "SESSION"').fetchone()[0],2)
-            self.assertEqual(c.execute('SELECT max(version) FROM schema_migrations').fetchone()[0],3)
+            self.assertEqual(c.execute('SELECT UserID FROM "SESSION"').fetchone()[0],2)
+            self.assertEqual(c.execute('SELECT max(version) FROM schema_migrations').fetchone()[0],4)
             self.assertEqual(c.execute('PRAGMA foreign_key_check').fetchall(),[])
         self.assertEqual(len(list((self.root/'database-backups').glob('before-erd-v2-*.sqlite3'))),1)
 
@@ -95,7 +95,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(store.get(session['id'])['completed'],1)
         self.assertEqual(store.list_for_exams(['e'])[0]['messages'][1]['text'],'all or nothing')
         # Invalid JSON must roll back the interaction and session progress.
-        with self.assertRaises(sqlite3.OperationalError):
+        with self.assertRaises((sqlite3.OperationalError, sqlite3.IntegrityError)):
             with connect(self.path) as c:
                 c.execute("INSERT INTO assessment_turns VALUES('bad',?,'Q1',2,'q','a','invalid','[]','move_on','','now')",(session['id'],))
         self.assertEqual(store.list_for_exams(['e'])[0]['turn_count'],1)

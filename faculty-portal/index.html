@@ -1181,6 +1181,14 @@ async function publish() {
 $("publishBtn").onclick = publish; $("publishTopBtn").onclick = publish;
 
 /* ============ TRANSCRIPTS ============ */
+  function renderTurnEvaluation(e,action){
+    const list=(title,items)=>items?.length ? `<p><strong>${title}</strong></p><ul>${items.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>` : "";
+    return `<details><summary>Evaluation · ${esc((action || "").replaceAll("_"," "))}</summary>
+    ${(e.criterion_results || []).map(r=>`<p><strong>${esc(r.criterion_id)}: ${esc(r.status.replaceAll("_"," "))}</strong><br>${esc(r.reason || "")}${r.student_evidence ? `<br>Student evidence: ${esc(r.student_evidence)}` : ""}</p>`).join("")}
+    ${list("Missing concepts",e.missing_concepts)}${list("Misconceptions",e.misconceptions)}
+    ${e.uncertainty ? `<p>Uncertainty: ${esc(e.uncertainty)} — ${esc(e.uncertainty_reason || "")}</p>` : ""}
+    ${e.feedback ? `<p>${esc(e.feedback)}</p>` : ""}</details>`;
+  }
 async function loadTranscripts() {
   const btn = $("refreshTranscriptsBtn"); btn.disabled = true;
   $("transcriptsStatus").textContent = "Loading transcripts…";
@@ -1192,14 +1200,18 @@ async function loadTranscripts() {
       const messages = (s.messages || []).map(m => `
         <div class="transcript-message ${m.speaker === "student" ? "student" : "examiner"}">
           <span class="transcript-speaker">${m.speaker === "student" ? esc(student) : "Examiner"}</span>${esc(m.text || "")}
+          ${m.essential_question ? `<p><strong>Essential question:</strong> ${esc(m.essential_question)}</p>` : ""}
+          ${m.start_time || m.end_time ? `<p class="sub">${esc(m.start_time || "Unknown start")} — ${esc(m.end_time || m.question_end_time || "Unknown end")}</p>` : ""}
+          ${m.video_url ? `<video controls preload="none" style="width:100%;max-width:500px" src="${esc(m.video_url)}"></video>` : ""}
+          ${m.evaluation ? renderTurnEvaluation(m.evaluation,m.action) : ""}
           ${m.recording ? `<div><audio controls preload="none" style="max-width:100%;margin-top:10px" aria-label="Student answer recording" src="${esc(m.recording.url)}"></audio><br><a href="${esc(m.recording.url)}" download>Download recording</a></div>` : ""}
         </div>`).join("");
       return `<details class="card transcript-session" ${index === 0 ? "open" : ""}>
         <summary>
           <div><strong>${esc(student)}</strong><div class="sub">${esc(s.course || "Course")} · ${esc(s.exam_title || "Oral assessment")} · ${esc(started)}</div></div>
-          <div class="transcript-meta"><span class="badge ${s.completed ? "green" : "gold"}">${s.completed ? "Complete" : "In progress"}</span><span class="badge purple">${Number(s.turn_count || 0)} answers</span>${s.turn_count ? `<a class="btn small secondary" href="/reports/${encodeURIComponent(s.id)}" target="_blank" rel="noopener" style="text-decoration:none" onclick="event.stopPropagation()">View report</a>` : ""}</div>
+          <div class="transcript-meta"><span class="badge ${s.completed ? "green" : "gold"}">${s.completed ? "Complete" : s.status === "interrupted" ? "Interrupted" : "In progress"}</span><span class="badge purple">${Number(s.turn_count || 0)} answers</span>${s.turn_count ? `<a class="btn small secondary" href="/reports/${encodeURIComponent(s.id)}" target="_blank" rel="noopener" style="text-decoration:none" onclick="event.stopPropagation()">View report</a>` : ""}</div>
         </summary>
-        <div class="transcript-messages">${messages || `<div class="empty"><strong>No answers recorded</strong><p>The student started this session but has not submitted an answer.</p></div>`}</div>
+        <div class="transcript-messages">${(s.recordings || []).map(r => `<div><strong>Full session recording:</strong> ${esc(r.status)}${r.url ? `<video controls preload="none" style="width:100%;max-width:800px;display:block" src="${esc(r.url)}"></video><a href="${esc(r.url)}" download>Download full recording</a>` : ""}</div>`).join("")}${messages || `<div class="empty"><strong>No answers recorded</strong><p>The student started this session but has not submitted an answer.</p></div>`}</div>
       </details>`;
     }).join("") : `<div class="card empty"><strong>No transcripts yet</strong><p>Completed and in-progress student assessment sessions will appear here after Faster Whisper transcribes an answer.</p></div>`;
     $("transcriptsStatus").textContent = `Showing ${sessions.length} recent session${sessions.length === 1 ? "" : "s"}.`;

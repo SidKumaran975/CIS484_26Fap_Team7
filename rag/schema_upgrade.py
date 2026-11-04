@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 def upgrade_v1(path: Path):
-    from .database import connect
+    from .database import initialize_database, connect, SCHEMA_VERSION
     path = Path(path).resolve()
     backups = path.parent/'database-backups'
     backups.mkdir(parents=True,exist_ok=True)
@@ -24,8 +24,7 @@ def upgrade_v1(path: Path):
              'INTERACTION','RESPONSE','RESP_TRANS','RESP_REC','EVALUATION','analytics_runs','analytics_model_calls')
     with tempfile.TemporaryDirectory(prefix='erd-v2-',dir=path.parent) as folder:
         staged = Path(folder)/'assessment.sqlite3'
-        with closing(sqlite3.connect(staged)) as c:
-            c.executescript(Path(__file__).with_name('schema_v2.sql').read_text(encoding='utf-8'))
+        initialize_database(staged, target_version=2)
         with closing(sqlite3.connect(backup)) as source, connect(staged) as target:
             source.row_factory = sqlite3.Row
             target.execute('PRAGMA foreign_keys=OFF')

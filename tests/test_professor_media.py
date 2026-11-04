@@ -290,11 +290,16 @@ class ProfessorMediaTests(unittest.TestCase):
         payload=self.seed_exam(faculty,eid)
         store=self.portal.TRANSCRIPTS
         session=store.create(payload['course_id'],eid,initial_prompt='Explain TCP')
+        interaction=store.prepare_interaction(session['id'],'q1','Explain TCP')
+        from rag.recordings import FullRecordingStore
+        FullRecordingStore(store.path,self.root/'full-recordings').start(session['id'],'2026-01-01T00:00:00Z')
+        store.timing_event(session['id'],interaction,'question_start','2026-01-01T00:00:00+00:00')
+        store.timing_event(session['id'],interaction,'question_end','2026-01-01T00:00:01+00:00')
         def submit(session_id,transcript,recording):
             turn=store.record_turn_and_update(session_id,'q1','Explain TCP',transcript,{},[],
                                              'move_on',1,0,True,recording=recording)
             return {'turn_id':turn,'question_id':'q1','completed':True}
-        engine=SimpleNamespace(submit_response=submit,exam_id=eid,
+        engine=SimpleNamespace(submit_response=submit,exam_id=eid,sessions=store,
             assessment=SimpleNamespace(course_id=payload['course_id']),examiner=None,close=lambda:None)
         directory=self.root/'answer-recordings'
         with patch.dict(os.environ,{'RECORDINGS_DIR':str(directory),'RETAIN_AUDIO':'false'}), \
@@ -312,7 +317,8 @@ class ProfessorMediaTests(unittest.TestCase):
         client=TestClient(student.app)
         self.addCleanup(client.close)
         with patch.object(student,'transcribe_audio',return_value='Reliable delivery'):
-            response=client.post('/api/answers',data={'session_id':session['id']},
+            response=client.post('/api/answers',data={'session_id':session['id'],'interaction_id':interaction,
+                'response_start':'2026-01-01T00:00:02Z','response_end':'2026-01-01T00:00:05Z'},
                                  files={'audio':('answer.webm',b'recorded speech','audio/webm')})
         self.assertEqual(response.status_code,200,response.text)
         with self.portal.db() as c:
@@ -320,6 +326,28 @@ class ProfessorMediaTests(unittest.TestCase):
                           (response.json()['turn_id'],)).fetchone()
         self.assertEqual(Path(row['AudioFilePath']).read_bytes(),b'recorded speech')
         self.assertEqual(row['FileFormat'],'audio/webm')
+
+    def test_full_and_question_recordings_require_owning_faculty(self):
+        faculty=self.client('prof_a')
+        payload=self.seed_exam(faculty,'exam_7777777777')
+        store=self.portal.TRANSCRIPTS
+        session=store.create(payload['course_id'],'exam_7777777777')
+        interaction=store.prepare_interaction(session['id'],'q1','Explain TCP')
+        video=self.root/'audit-question.mp4'
+        video.write_bytes(b'question video')
+        full=self.root/'audit-full.webm'
+        full.write_bytes(b'full recording')
+        store.question_media(session['id'],str(video))
+        with self.portal.db() as c:
+            c.execute("INSERT INTO RECORDING(RecordingID,SessionID,RecordingPath,RecordingStatus) VALUES(?,?,?,'complete')",
+                (session['id'],session['id'],str(full)))
+        for url,expected in ((f"/api/question-videos/{interaction}",b'question video'),
+                             (f"/api/full-recordings/{session['id']}",b'full recording')):
+            self.assertEqual(faculty.get(url).content,expected)
+            self.assertEqual(self.client('prof_b').get(url).status_code,404)
+            self.assertEqual(self.client('student').get(url).status_code,403)
+            with TestClient(self.portal.app) as anonymous:
+                self.assertEqual(anonymous.get(url).status_code,401)
 
     def test_database_publication_survives_export_loss_and_draft_edits(self):
         faculty = self.client('prof_a')

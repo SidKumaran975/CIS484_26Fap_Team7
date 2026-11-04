@@ -69,6 +69,7 @@ class Evaluation(BaseModel):
     uncertainty: Literal["low", "medium", "high"]
     uncertainty_reason: str = ""
     suggested_follow_up: str = ""
+    follow_up_essential_question: str = ""
     citations: list[Citation] = Field(default_factory=list)
 
 

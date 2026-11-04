@@ -67,8 +67,10 @@ class AssessmentEngine:
             student_name=student.get("display_name"),
             initial_prompt=question.prompt,
         )
+        interaction_id = self.sessions.prepare_interaction(session['id'], question.id, question.prompt)
         return {
             "session_id": session["id"],
+            "interaction_id": interaction_id,
             "question_id": question.id,
             "question_number": 1,
             "question_count": len(self.assessment.questions),
@@ -158,8 +160,21 @@ class AssessmentEngine:
             next_prompt=next_prompt,
             recording=recording,
         )
+        interaction_id = None
+        if not completed:
+            essential = None
+            if action != 'move_on':
+                concepts = evaluation.missing_concepts or evaluation.misconceptions
+                if not concepts:
+                    missed = {r.criterion_id for r in evaluation.criterion_results if r.status != 'met'}
+                    concepts = [r.description for r in question.rubric if r.id in missed]
+                essential = evaluation.follow_up_essential_question.strip() or (
+                    'Explain ' + '; '.join(concepts) + '.' if concepts else question.prompt
+                )
+            interaction_id = self.sessions.prepare_interaction(session_id, next_question_id, next_prompt, essential)
         return {
             "session_id": session_id,
+            "interaction_id": interaction_id,
             "turn_id": turn_id,
             "question_id": question.id,
             "transcript": transcript,

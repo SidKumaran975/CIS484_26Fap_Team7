@@ -14,6 +14,9 @@ Every course citation must use a supplied chunk_id. Use insufficient_evidence
 when the response or course context does not support a judgment. Suggest one
 short follow-up only when it would clarify or probe a missing required concept.
 The follow-up must not reveal the answer or tell the student what to say.
+When suggesting a follow-up, also provide follow_up_essential_question: a
+standalone essential question naming the underlying concept that motivated
+the follow-up, based on the missing criterion, misconception, or uncertainty.
 Return only data matching the required JSON schema."""
 
 

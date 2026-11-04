@@ -1,134 +1,135 @@
-"""Migration preservation and constraints that cross the new ERD entities."""
 import json
 import sqlite3
 import unittest
-from contextlib import closing
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from rag.database import connect, initialize_database, read_publication
+from rag.database import connect, initialize_database
 from rag.sessions import SessionStore
+from rag.recordings import FullRecordingStore
 
 
-class ERDV3Tests(unittest.TestCase):
+class RecordingERDTests(unittest.TestCase):
     def setUp(self):
         self.temp = TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.path = Path(self.temp.name)/'assessment.sqlite3'
+        self.path = Path(self.temp.name) / 'exam.db'
 
-    def seed_v2(self):
-        with closing(sqlite3.connect(self.path)) as c:
-            c.executescript((Path(__file__).parents[1]/'rag/schema_v2.sql').read_text(encoding='utf-8'))
-            c.execute("INSERT INTO users VALUES(1,'prof','Professor','faculty','same-password-hash','then')")
-            c.execute("INSERT INTO users VALUES(2,'student','Student','student','student-hash','then')")
-            c.execute("INSERT INTO DEPARTMENT VALUES('d','Department','D')")
-            c.execute("INSERT INTO USER_DEPART VALUES(1,'d')")
-            c.execute("INSERT INTO courses VALUES('c',1,'CIS','Course','Fall','then')")
-            c.execute("INSERT INTO USER_COURSE VALUES(2,'c')")
-            c.execute("INSERT INTO AVATAR VALUES('avatar-id',1,'face.png','voice.wav','version','then')")
-            questions=json.dumps([{'id':'q','question':'Why?','key_points':['Evidence']}])
-            c.execute("INSERT INTO exams(id,course_id,professor_id,title,settings,questions,status) VALUES('e','c',1,'Exam','{}',?,'published')",(questions,))
-            c.execute("INSERT INTO EXAM_PUBLICATION VALUES('e','then',?)",(json.dumps({'exam_id':'e','published_at':'then'}),))
-            c.execute("INSERT INTO assessment_sessions(id,course_id,exam_id,student_id,created_at,updated_at) VALUES('s','c','e',2,'then','then')")
-            c.execute("INSERT INTO assessment_turns VALUES('turn','s','q',1,'Why?','Because.',?, '[]','move_on','','2026-11-03T12:00:00Z')",(json.dumps({'rating':4,'feedback':'Good','evidence':['Because.']}),))
-            # Real v2 IDs are not required to equal the response or turn IDs.
-            c.execute("UPDATE RESP_TRANS SET TranscriptID='transcript-id'")
-            c.execute("UPDATE EVALUATION SET EvaluationID='evaluation-id'")
-            c.execute("INSERT INTO RESP_REC VALUES('recording-id','turn','answer.webm',3.5,'audio/webm')")
-            c.execute('CREATE TABLE custom_audit(id INTEGER PRIMARY KEY AUTOINCREMENT, note TEXT)')
-            c.execute('CREATE INDEX custom_note ON custom_audit(note)')
-            c.execute("INSERT INTO custom_audit VALUES(19,'kept')")
-            c.execute("UPDATE sqlite_sequence SET seq=50 WHERE name='USER'")
-            c.commit()
+    def seed(self, version=4):
+        initialize_database(self.path,target_version=version)
+        with connect(self.path) as c:
+            c.execute("INSERT INTO users VALUES(1,'prof','Professor','faculty','hash','now')")
+            c.execute("INSERT INTO users VALUES(2,'student','Student','student','hash','now')")
+            c.execute("INSERT INTO courses VALUES('course',1,'CIS','Course','Fall','now')")
+            c.execute("INSERT INTO USER_COURSE VALUES(2,'course')")
+            c.execute("INSERT INTO exams(id,course_id,professor_id,title,settings,questions,status) VALUES('exam','course',1,'Exam','{}',?,'published')",
+                (json.dumps([{'id':'Q1','question':'Explain transactions','key_points':['atomicity']}]),))
 
-    def test_v2_upgrade_preserves_all_rows_and_adapters(self):
-        self.seed_v2()
+    def test_v2_upgrade_preserves_grading_audio_and_profiles(self):
+        self.seed(2)
+        with connect(self.path) as c:
+            c.execute("INSERT INTO AVATAR VALUES('a',1,'face.png','voice.wav','v','now')")
+            c.execute("INSERT INTO assessment_sessions(id,exam_id,course_id,student_id,created_at,updated_at) VALUES('s','exam','course',2,'start','start')")
+            c.execute("INSERT INTO assessment_turns VALUES('t','s','Q1',1,'Explain transactions','answer',?,'[]','move_on','','finish')",(json.dumps({'feedback':'Good evidence'}),))
+            c.execute("INSERT INTO RESP_REC VALUES('t','t','response.webm',2,'audio/webm')")
         initialize_database(self.path)
         initialize_database(self.path)
         with connect(self.path) as c:
-            self.assertEqual(c.execute('SELECT max(version) FROM schema_migrations').fetchone()[0],3)
-            self.assertEqual(tuple(c.execute('SELECT InstructorID,DepartmentID,FaceImagePath,VoiceSamplePath FROM INSTRUCTOR').fetchone()),(1,'d','face.png','voice.wav'))
-            self.assertEqual(tuple(c.execute('SELECT StudentID,SectionID FROM STUDENT_SEC').fetchone()),(2,'legacy-section:c'))
-            self.assertEqual(tuple(c.execute('SELECT CourseID,SectionNumber FROM SECTION').fetchone()),('c','legacy'))
+            self.assertEqual(c.execute('SELECT AudioFilePath FROM CLIP_RESP').fetchone()[0],'response.webm')
+            self.assertEqual(c.execute('SELECT TranscriptText FROM CLIP_TRANS').fetchone()[0],'answer')
+            self.assertEqual(c.execute('SELECT PickedTransID FROM INTERACTION').fetchone()[0],'t')
+            self.assertEqual(json.loads(c.execute('SELECT Evaluation FROM INTERACTION').fetchone()[0])['feedback'],'Good evidence')
+            self.assertEqual(c.execute('SELECT FaceImagePath FROM INSTRUCTOR').fetchone()[0],'face.png')
             self.assertEqual(tuple(c.execute('SELECT StudentID,InstructorID FROM "SESSION"').fetchone()),(2,1))
-            self.assertEqual(tuple(c.execute('SELECT RecordingID,SessionID,RecordingPath FROM RECORDING').fetchone()),('recording-id','s','answer.webm'))
-            clip=c.execute('SELECT * FROM CLIP_RESP').fetchone()
-            self.assertEqual((clip['RespClip'],clip['InteractionID'],clip['Duration']),('turn','turn',3.5))
-            self.assertIsNone(clip['StartTime'])  # Unknown offsets are not invented.
-            transcript=c.execute('SELECT * FROM CLIP_TRANS').fetchone()
-            self.assertEqual((transcript['TranscriptID'],transcript['EvaluationID']),('transcript-id','evaluation-id'))
-            self.assertEqual(json.loads(transcript['Evaluation'])['rating'],4)
-            self.assertEqual(c.execute('SELECT note FROM custom_audit').fetchone()[0],'kept')
-            self.assertIsNotNone(c.execute("SELECT 1 FROM sqlite_master WHERE name='custom_note'").fetchone())
-            self.assertEqual(c.execute("SELECT seq FROM sqlite_sequence WHERE name='USER'").fetchone()[0],50)
+            self.assertEqual(tuple(c.execute('SELECT StudentID,SectionID FROM STUDENT_SEC').fetchone()),(2,'legacy:course'))
+            self.assertEqual(c.execute('SELECT RecordingStatus FROM RECORDING').fetchone()[0],'unavailable_legacy')
             self.assertEqual(c.execute('PRAGMA foreign_key_check').fetchall(),[])
-            self.assertEqual(c.execute('PRAGMA integrity_check').fetchone()[0],'ok')
-            self.assertEqual(read_publication(c,'e')['exam_id'],'e')
-        report=next((self.path.parent/'database-backups').glob('*.report.json'))
-        self.assertEqual(json.loads(report.read_text())['verified_tables']['RESP_REC'],1)
-        self.assertEqual(len(list((self.path.parent/'database-backups').glob('before-erd-v3-*.sqlite3'))),1)
-        turns=SessionStore(self.path).list_for_exams(['e'])[0]
-        self.assertEqual(turns['messages'][1]['text'],'Because.')
-        self.assertEqual(turns['messages'][1]['recording']['id'],'recording-id')
+        self.assertEqual(len(list((self.path.parent/'database-backups').glob('before-erd-v4-*'))),1)
 
-    def test_conflicting_departments_abort_without_replacing_original(self):
-        self.seed_v2()
-        with closing(sqlite3.connect(self.path)) as c:
-            c.execute("INSERT INTO DEPARTMENT VALUES('other','Other','O')")
-            c.execute("INSERT INTO USER_DEPART VALUES(1,'other')")
-            c.commit()
-        original=self.path.read_bytes()
-        with self.assertRaisesRegex(ValueError,'multiple memberships'):
-            initialize_database(self.path)
-        self.assertEqual(self.path.read_bytes(),original)
-
-    def test_multiple_clips_transcripts_and_cross_session_rejection(self):
-        self.seed_v2()
-        initialize_database(self.path)
+    def test_followup_essential_question_and_selected_transcript(self):
+        self.seed()
         store=SessionStore(self.path)
-        other=store.create('c','e',student_id=2)
-        turn=store.record_turn_and_update(other['id'],'q','Why?','Typed answer',{},[],'move_on',1,0,True)
+        s=store.create('course','exam',student_id=2)
+        interaction=store.prepare_interaction(s['id'],'Q1','What happens on failure?','Explain atomicity and rollback.')
+        store.timing_event(s['id'],interaction,'question_start','2026-01-01T00:00:01+00:00')
+        store.timing_event(s['id'],interaction,'question_end','2026-01-01T00:00:03+00:00')
+        store.record_turn_and_update(s['id'],'Q1','What happens on failure?','Rollback',{'feedback':'Correct'},[],'move_on',1,0,True,
+            recording={'path':'answer.webm','format':'audio/webm','start_time':'2026-01-01T00:00:04+00:00','end_time':'2026-01-01T00:00:06+00:00','interaction_id':interaction})
         with connect(self.path) as c:
-            self.assertIsNone(c.execute('SELECT RecordingID FROM CLIP_RESP WHERE RespClip=?',(turn,)).fetchone()[0])
-            with self.assertRaises(sqlite3.IntegrityError):
-                c.execute("UPDATE CLIP_RESP SET RecordingID='recording-id' WHERE RespClip=?",(turn,))
-            with self.assertRaises(sqlite3.IntegrityError):
-                c.execute('UPDATE RECORDING SET SessionID=? WHERE RecordingID=\'recording-id\'',(other['id'],))
-            with self.assertRaises(sqlite3.IntegrityError):
-                c.execute('UPDATE INTERACTION SET SessionID=? WHERE InteractionID=\'turn\'',(other['id'],))
-            c.execute("INSERT INTO CLIP_RESP(RespClip,RecordingID,InteractionID,AudioFilePath,StartTime,EndTime,AnsweredAt) VALUES('clip2','recording-id','turn','clip2.webm',1,2,'2026-11-03T13:00:00Z')")
-            c.execute("INSERT INTO CLIP_TRANS(TranscriptID,RespClipID,TranscriptText) VALUES('t2','clip2','first transcription')")
-            c.execute("INSERT INTO CLIP_TRANS(TranscriptID,RespClipID,TranscriptText) VALUES('t3','clip2','second transcription')")
-            self.assertEqual(c.execute("SELECT count(*) FROM CLIP_RESP WHERE RecordingID='recording-id'").fetchone()[0],2)
-            self.assertEqual(c.execute("SELECT count(*) FROM CLIP_TRANS WHERE RespClipID='clip2'").fetchone()[0],2)
-            c.execute("UPDATE CLIP_TRANS SET Evaluation='{}',EvaluationID='eval-t2' WHERE TranscriptID='t2'")
-            c.execute("UPDATE CLIP_TRANS SET Evaluation='{}',EvaluationID='eval-t3' WHERE TranscriptID='t3'")
-            self.assertEqual(c.execute("SELECT count(*) FROM assessment_turns WHERE id='turn'").fetchone()[0],1)
-            self.assertEqual(c.execute("SELECT transcript FROM assessment_turns WHERE id='turn'").fetchone()[0],'second transcription')
-            with self.assertRaises(sqlite3.IntegrityError):
-                c.execute("INSERT INTO STUDENT_SEC VALUES(999,'legacy-section:c')")
-            self.assertEqual(c.execute('PRAGMA foreign_key_check').fetchall(),[])
+            row=c.execute('SELECT * FROM INTERACTION').fetchone()
+            essential=c.execute('SELECT * FROM QUEST_ESS WHERE QuestionID=?',(row['QuestionID'],)).fetchone()
+            self.assertIsNone(essential['BankID'])
+            self.assertEqual(essential['QuestionText'],'Explain atomicity and rollback.')
+            self.assertEqual(row['PickedTransID'],interaction)
+            self.assertGreaterEqual(row['EndTime'],'2026-01-01T00:00:06+00:00')
+            c.execute('INSERT INTO CLIP_TRANS VALUES(?,?,?)',('alternate',interaction,'Alternate transcript'))
+            self.assertEqual(c.execute('SELECT transcript FROM assessment_turns').fetchone()[0],'Rollback')
+            c.execute('UPDATE INTERACTION SET PickedTransID=? WHERE InteractionID=?',('alternate',interaction))
+            self.assertEqual(c.execute('SELECT transcript FROM assessment_turns').fetchone()[0],'Alternate transcript')
+        messages=store.list_for_exams(['exam'])[0]['messages']
+        self.assertEqual(messages[0]['essential_question'],'Explain atomicity and rollback.')
+        self.assertEqual(messages[1]['evaluation']['feedback'],'Correct')
 
-    def test_failed_answer_recording_rolls_back_whole_turn(self):
-        self.seed_v2()
-        initialize_database(self.path)
+    def test_cross_interaction_selection_rejected(self):
+        self.seed()
         store=SessionStore(self.path)
-        with self.assertRaises(sqlite3.IntegrityError):
-            store.record_turn_and_update('s','q','q','answer',{},[],'move_on',1,0,True,recording={'path':None})
-        self.assertEqual(store.get('s')['completed'],0)
-        with connect(self.path) as c:
-            self.assertEqual(c.execute('SELECT count(*) FROM INTERACTION').fetchone()[0],1)
-            self.assertEqual(c.execute('SELECT count(*) FROM RECORDING').fetchone()[0],1)
+        ids=[]
+        for _ in range(2):
+            session=store.create('course','exam')
+            ids.append(store.record_turn_and_update(session['id'],'Q1','Question','Answer',{},[],'move_on',1,0,True))
+        with self.assertRaises(sqlite3.IntegrityError), connect(self.path) as c:
+            c.execute('UPDATE INTERACTION SET PickedTransID=? WHERE InteractionID=?',(ids[0],ids[1]))
 
-    def test_session_delete_cascades_its_recording_clips_and_transcripts(self):
-        self.seed_v2()
+    def test_full_recording_retries_missing_chunks_and_interruption(self):
+        self.seed()
+        sessions=SessionStore(self.path)
+        session=sessions.create('course','exam')
+        store=FullRecordingStore(self.path,Path(self.temp.name)/'recordings')
+        store.start(session['id'],'2026-01-01T00:00:00Z')
+        store.chunk(session['id'],1,b'second')
+        store.chunk(session['id'],1,b'second')
+        with self.assertRaises(ValueError):store.chunk(session['id'],1,b'conflict')
+        with self.assertRaises(ValueError):store.finish(session['id'],2,'2026-01-01T00:00:10Z',True)
+        store.chunk(session['id'],0,b'first')
+        with self.assertRaises(ValueError):store.finish(session['id'],2,'2026-01-01T00:00:10Z')
+        store.finish(session['id'],2,'2026-01-01T00:00:10Z',True)
+        with connect(self.path) as c:
+            row=c.execute('SELECT * FROM RECORDING').fetchone()
+            self.assertEqual(row['RecordingStatus'],'interrupted')
+            self.assertEqual(Path(row['RecordingPath']).read_bytes(),b'firstsecond')
+            self.assertEqual(c.execute('SELECT SessionStatus FROM "SESSION"').fetchone()[0],'interrupted')
+
+    def test_migration_failure_rolls_back_schema(self):
+        self.seed(2)
+        with connect(self.path) as c:
+            c.execute('PRAGMA foreign_keys=OFF')
+            c.execute("UPDATE COURSE SET UserID=999")
+        with self.assertRaises(ValueError):initialize_database(self.path)
+        with connect(self.path) as c:
+            self.assertEqual(c.execute('SELECT max(version) FROM schema_migrations').fetchone()[0],2)
+            self.assertIsNone(c.execute("SELECT 1 FROM sqlite_master WHERE name='CLIP_RESP'").fetchone())
+
+    def test_earlier_local_v3_is_upgraded_without_losing_fields(self):
+        with sqlite3.connect(self.path) as c:
+            c.executescript((Path(__file__).parent/'fixtures/schema-local-v3.sql').read_text())
+            c.executemany('INSERT INTO schema_migrations(version) VALUES(?)',[(2,),(3,)])
+            c.execute("INSERT INTO users VALUES(1,'prof','Professor','faculty','hash','now')")
+            c.execute("INSERT INTO users VALUES(2,'student','Student','student','hash','now')")
+            c.execute("INSERT INTO courses VALUES('c',1,'CIS','Course','Fall','now')")
+            c.execute("INSERT INTO exams(id,course_id,professor_id,title,settings,questions,status) VALUES('e','c',1,'Exam','{}',?,'published')",
+                (json.dumps([{'id':'Q1','question':'Explain atomicity'}]),))
+            c.execute("INSERT INTO assessment_sessions(id,course_id,exam_id,student_id,created_at,updated_at) VALUES('s','c','e',2,'start','start')")
+            c.execute("INSERT INTO assessment_turns VALUES('t','s','Q1',1,'Explain atomicity','all or nothing',?,'[]','move_on','','answer-time')",
+                (json.dumps({'feedback':'Good answer'}),))
+        c.close()
         initialize_database(self.path)
         with connect(self.path) as c:
-            c.execute('DELETE FROM "SESSION" WHERE SessionID=\'s\'')
-            for table in ('INTERACTION','RECORDING','CLIP_RESP','CLIP_TRANS'):
-                self.assertEqual(c.execute(f'SELECT count(*) FROM {table}').fetchone()[0],0)
+            self.assertEqual(c.execute('SELECT max(version) FROM schema_migrations').fetchone()[0],4)
+            self.assertEqual(c.execute('SELECT transcript FROM assessment_turns').fetchone()[0],'all or nothing')
+            self.assertEqual(json.loads(c.execute('SELECT Evaluation FROM INTERACTION').fetchone()[0])['feedback'],'Good answer')
+            self.assertTrue(c.execute('SELECT count(*) FROM LEGACY_ERD_FIELDS').fetchone()[0])
             self.assertEqual(c.execute('PRAGMA foreign_key_check').fetchall(),[])
 
 
-if __name__=='__main__':
+if __name__ == '__main__':
     unittest.main()

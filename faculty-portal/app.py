@@ -487,6 +487,28 @@ def student_recording(recording_id: str, user: dict = Depends(require_faculty)):
     return FileResponse(path,media_type=row['FileFormat'] or 'application/octet-stream',
                         filename=path.name,content_disposition_type='inline')
 # ================= ATTAINMENT REPORT =================
+@app.get('/api/full-recordings/{recording_id}')
+def full_session_recording(recording_id: str, user: dict = Depends(require_faculty)):
+    with db() as c:
+        row = c.execute('''SELECT r.RecordingPath FROM RECORDING r JOIN "SESSION" s USING(SessionID)
+            JOIN EXAM e USING(ExamID) JOIN COURSE course ON course.CourseID=e.CourseID
+            WHERE r.RecordingID=? AND course.UserID=? AND e.DeletedAt IS NULL''',(recording_id,user['id'])).fetchone()
+    if not row or not row[0] or not Path(row[0]).is_file():
+        raise HTTPException(404,'Full recording not found')
+    return FileResponse(row[0],media_type='video/webm',content_disposition_type='inline',filename='full-session.webm')
+
+
+@app.get('/api/question-videos/{interaction_id}')
+def question_video(interaction_id: str, user: dict = Depends(require_faculty)):
+    with db() as c:
+        row = c.execute('''SELECT i.ActualQuestionVid FROM INTERACTION i JOIN "SESSION" s USING(SessionID)
+            JOIN EXAM e USING(ExamID) JOIN COURSE course ON course.CourseID=e.CourseID
+            WHERE i.InteractionID=? AND course.UserID=? AND e.DeletedAt IS NULL''',(interaction_id,user['id'])).fetchone()
+    if not row or not row[0] or not Path(row[0]).is_file():
+        raise HTTPException(404,'Question video not found')
+    return FileResponse(row[0],media_type='video/mp4',content_disposition_type='inline',filename='question.mp4')
+
+
 @app.get("/reports/{session_id}")
 def attainment_report_page(request: Request):
     user = current_user(request)

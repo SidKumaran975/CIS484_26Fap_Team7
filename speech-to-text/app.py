@@ -1,6 +1,7 @@
 import os
 import sys
 import uuid
+import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from rag.faculty import (
     require_portal_user,
 )
 from rag.media import MediaGenerator
+from rag.recordings import FullRecordingStore, timestamp
 
 RECORDINGS_DIR = Path(
     os.environ.get("RECORDINGS_DIR", APP_DIR / "recordings")
@@ -110,6 +112,11 @@ def admin_page(request: Request):
     )
 
 
+@app.get('/session-recording.js')
+def recording_script():
+    return FileResponse(APP_DIR / 'session-recording.js', media_type='text/javascript')
+
+
 @app.get("/health")
 def health():
     try:
@@ -179,7 +186,9 @@ def start_session(body: StartSessionRequest, user: dict = Depends(require_portal
                 question_id=response["question_id"],
             )
             with run.stage("examiner_media"):
-                return add_media(response, app.state.media, "prompt", engine.examiner)
+                response = add_media(response, app.state.media, "prompt", engine.examiner)
+                retain_question_video(response, engine)
+                return response
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
@@ -195,6 +204,9 @@ def start_session(body: StartSessionRequest, user: dict = Depends(require_portal
 async def submit_answer(
     session_id: str = Form(...),
     audio: UploadFile = File(...),  # noqa: B008 - FastAPI dependency marker
+    response_start: str = Form(...),
+    response_end: str = Form(...),
+    interaction_id: str = Form(...),
     user: dict = Depends(require_portal_student),
 ):
     settings: Settings = app.state.settings
@@ -215,6 +227,15 @@ async def submit_answer(
         ) as run:
             run.add_metric("audio_bytes", len(payload))
             engine = app.state.manager.engine_for_session(session_id, user["id"])
+            start, end = timestamp(response_start), timestamp(response_end)
+            with engine.sessions._connection() as c:
+                active = c.execute('SELECT InteractionID FROM INTERACTION WHERE SessionID=? AND Evaluation IS NULL',(session_id,)).fetchone()
+                if not active or active[0] != interaction_id:
+                    raise ValueError('This answer does not belong to the active interaction')
+                full = c.execute('SELECT RecordingStatus FROM RECORDING WHERE RecordingID=?',(session_id,)).fetchone()
+                status = c.execute('SELECT SessionStatus FROM "SESSION" WHERE SessionID=?',(session_id,)).fetchone()
+                if not full or full[0] != 'recording' or status[0] != 'active':
+                    raise ValueError('Full session recording must be active before answering')
             audio_format = content_type.split(';')[0].strip().lower()
             suffix = {'audio/webm':'.webm','audio/ogg':'.ogg','audio/wav':'.wav',
                       'audio/x-wav':'.wav','audio/mpeg':'.mp3','audio/mp4':'.m4a',
@@ -231,13 +252,14 @@ async def submit_answer(
                 run.add_metric("course_id", engine.assessment.course_id)
                 response = await run_in_threadpool(
                     engine.submit_response, session_id, transcript,
-                    {"path": str(recording_path), "format": audio_format},
+                    {"path": str(recording_path), "format": audio_format, "start_time":start,"end_time":end,"interaction_id":interaction_id},
                 )
             run.set_context(question_id=response["question_id"])
             with run.stage("examiner_media"):
                 response = await run_in_threadpool(
                     add_media, response, app.state.media, "next_prompt", engine.examiner
                 )
+                retain_question_video(response, engine)
             return response
     except KeyError as exc:
         raise HTTPException(
@@ -249,6 +271,79 @@ async def submit_answer(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    finally:
+        if engine is not None:
+            engine.close()
+
+
+def retain_question_video(response, engine):
+    """Keep an audit copy separate from the regenerable media cache."""
+    url = response.get('media_url')
+    interaction_id = response.get('interaction_id')
+    if not url or not interaction_id:
+        return
+    source = app.state.settings.media_dir / Path(url).name
+    if source.suffix != '.mp4':
+        return
+    destination = RECORDINGS_DIR / response['session_id'] / (interaction_id + '.mp4')
+    destination.parent.mkdir(parents=True,exist_ok=True)
+    shutil.copy2(source,destination)
+    engine.sessions.question_media(response['session_id'], str(destination))
+
+
+class RecordingEvent(BaseModel):
+    event: str
+    timestamp: str
+    interaction_id: str | None = None
+    chunk_count: int = 0
+
+
+@app.post('/api/sessions/{session_id}/recording-events')
+def recording_event(session_id: str, body: RecordingEvent, user: dict = Depends(require_portal_student)):
+    engine = None
+    try:
+        engine = app.state.manager.engine_for_session(session_id,user['id'])
+        store = FullRecordingStore(engine.sessions.path, RECORDINGS_DIR)
+        if body.event == 'recording_start':
+            store.start(session_id,body.timestamp)
+        elif body.event in ('question_start','question_end'):
+            with engine.sessions._connection() as c:
+                active = c.execute('SELECT RecordingStatus FROM RECORDING WHERE RecordingID=?',(session_id,)).fetchone()
+                if not active or active[0] != 'recording':
+                    raise ValueError('Full session recording must be active before question playback')
+            engine.sessions.timing_event(session_id,body.interaction_id,body.event,timestamp(body.timestamp))
+        elif body.event in ('recording_end','recording_interrupted'):
+            store.finish(session_id,body.chunk_count,body.timestamp,body.event == 'recording_interrupted')
+        else:
+            raise ValueError('Unknown recording event')
+        return {'ok':True}
+    except PermissionError as exc:
+        raise HTTPException(403,str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(404,'Session not found') from exc
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from exc
+    finally:
+        if engine is not None:
+            engine.close()
+
+
+@app.post('/api/sessions/{session_id}/recording-chunks/{index}')
+async def recording_chunk(session_id: str, index: int, video: UploadFile = File(...), user: dict = Depends(require_portal_student)):
+    engine = None
+    try:
+        engine = app.state.manager.engine_for_session(session_id,user['id'])
+        payload = await video.read(32 * 1024 * 1024 + 1)
+        if len(payload) > 32 * 1024 * 1024:
+            raise HTTPException(413,'Recording segment is too large')
+        await run_in_threadpool(FullRecordingStore(engine.sessions.path,RECORDINGS_DIR).chunk,session_id,index,payload)
+        return {'ok':True}
+    except PermissionError as exc:
+        raise HTTPException(403,str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(404,'Session not found') from exc
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from exc
     finally:
         if engine is not None:
             engine.close()
