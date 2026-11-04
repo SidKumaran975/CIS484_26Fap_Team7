@@ -1,6 +1,9 @@
 """Isolated API/routing tests: no real accounts, models, or database touched."""
 
 import importlib.util
+import asyncio
+import threading
+import time
 import io
 import json
 import os
@@ -116,6 +119,44 @@ class ProfessorMediaTests(unittest.TestCase):
         self.assertEqual(student.get("/api/profile/media/voice").status_code, 403)
         self.assertEqual(a.get("/api/profile/media/voice").content, voice())
 
+    def test_overlapping_index_requests_leave_event_loop_responsive(self):
+        lock = threading.Lock()
+        loop_thread = threading.get_ident()
+        lifecycle_threads = []
+
+        class BlockingIndex:
+            def __init__(self, *args):
+                lifecycle_threads.append(threading.get_ident())
+                if threading.get_ident() == loop_thread:
+                    raise AssertionError("Index lock acquisition blocks the event loop")
+                if not lock.acquire(timeout=2):
+                    raise AssertionError("Index lock was not released")
+
+            def rebuild(self, *args):
+                time.sleep(0.1)
+                return {"document_count": 1, "chunk_count": 1}
+
+            def close(self):
+                lifecycle_threads.append(threading.get_ident())
+                lock.release()
+
+        async def exercise():
+            ticks = 0
+            tasks = [asyncio.create_task(self.portal.rebuild_course_index("test", {}))
+                     for _ in range(2)]
+            while not all(task.done() for task in tasks):
+                ticks += 1
+                await asyncio.sleep(0.01)
+            results = await asyncio.gather(*tasks)
+            self.assertTrue(all(result["ready"] for result in results))
+            self.assertGreater(ticks, 5)
+
+        with patch.object(self.portal, "CourseIndex", BlockingIndex), patch.object(
+            self.portal, "get_course", return_value={"id": "test", "code": "TEST"}
+        ):
+            asyncio.run(exercise())
+        self.assertTrue(all(t != loop_thread for t in lifecycle_threads))
+
     def test_faculty_imports_premade_questions_as_draft(self):
         faculty = self.client("prof_a")
         course = faculty.post(
@@ -205,11 +246,15 @@ class ProfessorMediaTests(unittest.TestCase):
         faculty=self.client('prof_a')
         eid='exam_5555555555'
         payload=self.seed_exam(faculty,eid)
+        self.assertEqual(faculty.post(f'/api/exams/{eid}/publish',json=payload).status_code,200)
         store=self.portal.TRANSCRIPTS
         session=store.create(payload['course_id'],eid,initial_prompt='Explain TCP')
         recording=self.root/'student-answer.webm'
         recording.write_bytes(b'recorded student answer')
-        turn=store.record_turn_and_update(session['id'],'q1','Explain TCP','Reliable delivery',{},[],
+        evaluation = {"criterion_results": [{"criterion_id": "q1_R1", "status": "met",
+                      "student_evidence": "Reliable delivery", "reason": "Explains reliability"}],
+                      "uncertainty": "low", "misconceptions": []}
+        turn=store.record_turn_and_update(session['id'],'q1','Explain TCP','Reliable delivery',evaluation,[],
                                          'move_on',1,0,True,recording={'path':str(recording),'format':'audio/webm'})
         report=faculty.get('/api/transcripts').json()
         saved=next(s for s in report['sessions'] if s['id']==session['id'])
@@ -218,10 +263,26 @@ class ProfessorMediaTests(unittest.TestCase):
         response=faculty.get(audio['url'])
         self.assertEqual(response.status_code,200)
         self.assertEqual(response.content,recording.read_bytes())
+        report_url = f'/api/reports/{session["id"]}'
+        attainment = faculty.get(report_url)
+        self.assertEqual(attainment.status_code, 200)
+        self.assertEqual(attainment.json()['totals']['key_points_met'], 1)
+        self.assertTrue(attainment.json()['completed'])
+        self.assertEqual(attainment.json()['questions'][0]['exchanges'][0]['response'], 'Reliable delivery')
+        self.assertEqual(faculty.get(f'/reports/{session["id"]}').status_code, 200)
+        # Reports must use the database publication, not an editable draft or export.
+        (self.portal.EXAMS_DIR/f'{eid}.json').unlink()
+        with self.portal.db() as c:
+            c.execute('UPDATE exams SET questions=? WHERE id=?',
+                      (json.dumps([{'id':'new','question':'draft change'}]),eid))
+        self.assertEqual(faculty.get(report_url).json(), attainment.json())
+        self.assertEqual(self.client('prof_b').get(report_url).status_code, 404)
+        self.assertEqual(self.client('student').get(report_url).status_code, 403)
         self.assertEqual(self.client('prof_b').get(audio['url']).status_code,404)
         self.assertEqual(self.client('student').get(audio['url']).status_code,403)
         with TestClient(self.portal.app) as anonymous:
             self.assertEqual(anonymous.get(audio['url']).status_code,401)
+            self.assertEqual(anonymous.get(report_url).status_code,401)
 
     def test_student_upload_is_retained_and_linked_after_transcription(self):
         faculty=self.client('prof_a')

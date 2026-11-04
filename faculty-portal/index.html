@@ -1197,7 +1197,7 @@ async function loadTranscripts() {
       return `<details class="card transcript-session" ${index === 0 ? "open" : ""}>
         <summary>
           <div><strong>${esc(student)}</strong><div class="sub">${esc(s.course || "Course")} · ${esc(s.exam_title || "Oral assessment")} · ${esc(started)}</div></div>
-          <div class="transcript-meta"><span class="badge ${s.completed ? "green" : "gold"}">${s.completed ? "Complete" : "In progress"}</span><span class="badge purple">${Number(s.turn_count || 0)} answers</span></div>
+          <div class="transcript-meta"><span class="badge ${s.completed ? "green" : "gold"}">${s.completed ? "Complete" : "In progress"}</span><span class="badge purple">${Number(s.turn_count || 0)} answers</span>${s.turn_count ? `<a class="btn small secondary" href="/reports/${encodeURIComponent(s.id)}" target="_blank" rel="noopener" style="text-decoration:none" onclick="event.stopPropagation()">View report</a>` : ""}</div>
         </summary>
         <div class="transcript-messages">${messages || `<div class="empty"><strong>No answers recorded</strong><p>The student started this session but has not submitted an answer.</p></div>`}</div>
       </details>`;
