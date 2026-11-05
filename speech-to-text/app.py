@@ -226,7 +226,9 @@ async def submit_answer(
             "assessment_turn", session_id=session_id
         ) as run:
             run.add_metric("audio_bytes", len(payload))
-            engine = app.state.manager.engine_for_session(session_id, user["id"])
+            engine = await run_in_threadpool(
+                app.state.manager.engine_for_session, session_id, user["id"]
+            )
             start, end = timestamp(response_start), timestamp(response_end)
             with engine.sessions._connection() as c:
                 active = c.execute('SELECT InteractionID FROM INTERACTION WHERE SessionID=? AND Evaluation IS NULL',(session_id,)).fetchone()
@@ -273,7 +275,7 @@ async def submit_answer(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     finally:
         if engine is not None:
-            engine.close()
+            await run_in_threadpool(engine.close)
 
 
 def retain_question_video(response, engine):
@@ -300,18 +302,18 @@ class RecordingEvent(BaseModel):
 
 @app.post('/api/sessions/{session_id}/recording-events')
 def recording_event(session_id: str, body: RecordingEvent, user: dict = Depends(require_portal_student)):
-    engine = None
     try:
-        engine = app.state.manager.engine_for_session(session_id,user['id'])
-        store = FullRecordingStore(engine.sessions.path, RECORDINGS_DIR)
+        app.state.manager.session_for_student(session_id,user['id'])
+        sessions = app.state.manager.sessions
+        store = FullRecordingStore(sessions.path, RECORDINGS_DIR)
         if body.event == 'recording_start':
             store.start(session_id,body.timestamp)
         elif body.event in ('question_start','question_end'):
-            with engine.sessions._connection() as c:
+            with sessions._connection() as c:
                 active = c.execute('SELECT RecordingStatus FROM RECORDING WHERE RecordingID=?',(session_id,)).fetchone()
                 if not active or active[0] != 'recording':
                     raise ValueError('Full session recording must be active before question playback')
-            engine.sessions.timing_event(session_id,body.interaction_id,body.event,timestamp(body.timestamp))
+            sessions.timing_event(session_id,body.interaction_id,body.event,timestamp(body.timestamp))
         elif body.event in ('recording_end','recording_interrupted'):
             store.finish(session_id,body.chunk_count,body.timestamp,body.event == 'recording_interrupted')
         else:
@@ -323,20 +325,16 @@ def recording_event(session_id: str, body: RecordingEvent, user: dict = Depends(
         raise HTTPException(404,'Session not found') from exc
     except ValueError as exc:
         raise HTTPException(400,str(exc)) from exc
-    finally:
-        if engine is not None:
-            engine.close()
 
 
 @app.post('/api/sessions/{session_id}/recording-chunks/{index}')
 async def recording_chunk(session_id: str, index: int, video: UploadFile = File(...), user: dict = Depends(require_portal_student)):
-    engine = None
     try:
-        engine = app.state.manager.engine_for_session(session_id,user['id'])
+        await run_in_threadpool(app.state.manager.session_for_student,session_id,user['id'])
         payload = await video.read(32 * 1024 * 1024 + 1)
         if len(payload) > 32 * 1024 * 1024:
             raise HTTPException(413,'Recording segment is too large')
-        await run_in_threadpool(FullRecordingStore(engine.sessions.path,RECORDINGS_DIR).chunk,session_id,index,payload)
+        await run_in_threadpool(FullRecordingStore(app.state.manager.sessions.path,RECORDINGS_DIR).chunk,session_id,index,payload)
         return {'ok':True}
     except PermissionError as exc:
         raise HTTPException(403,str(exc)) from exc
@@ -344,9 +342,6 @@ async def recording_chunk(session_id: str, index: int, video: UploadFile = File(
         raise HTTPException(404,'Session not found') from exc
     except ValueError as exc:
         raise HTTPException(400,str(exc)) from exc
-    finally:
-        if engine is not None:
-            engine.close()
 
 
 @app.get("/api/media/{filename}")

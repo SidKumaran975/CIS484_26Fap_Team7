@@ -376,6 +376,12 @@ class ProfessorMediaTests(unittest.TestCase):
         with self.portal.db() as db:
             ids = dict(db.execute("SELECT username,id FROM users"))
         generator = MediaGenerator(Settings(media_dir=self.root / "generated", media_mode="avatar"))
+        generator.avatar = self.root / "default-avatar.png"
+        generator.avatar.unlink(missing_ok=True)
+        with patch.object(generator, "_run") as run:
+            with self.assertRaisesRegex(ValueError, "Default avatar image is missing"):
+                generator.generate("Question")
+            run.assert_not_called()
         commands = []
         def render(command, cwd, label):
             commands.append(command)
@@ -387,6 +393,7 @@ class ProfessorMediaTests(unittest.TestCase):
             url_a = generator.generate("Question", ea)
             self.assertEqual(generator.generate("Question", ea), url_a)
             url_b = generator.generate("Question", eb)
+            generator.avatar.write_bytes(photo())
             legacy_url = generator.generate("Question")
         self.assertEqual(len(commands), 6)
         self.assertEqual(len({url_a, url_b, legacy_url}), 3)

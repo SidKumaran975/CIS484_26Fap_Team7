@@ -10,7 +10,7 @@ import sqlite3
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
 
 
 def database_path() -> Path:
@@ -222,7 +222,7 @@ CREATE VIEW IF NOT EXISTS professor_media AS SELECT UserID user_id,MediaVersion 
 '''
 
 
-def initialize_database(path: Path | None = None, *, target_version: int = 4) -> None:
+def initialize_database(path: Path | None = None, *, target_version: int = SCHEMA_VERSION) -> None:
     """Initialize an empty/unified file; never silently overwrite a legacy file."""
     path = Path(path or database_path())
     if not path.exists() and path.resolve() == database_path() and path.resolve() == (ROOT / "runtime" / "assessment.sqlite3").resolve() and (ROOT / "faculty-portal" / "exam_builder.db").is_file():
@@ -247,6 +247,12 @@ def initialize_database(path: Path | None = None, *, target_version: int = 4) ->
         if version == 2:
             from .erd_v3 import upgrade_v2
             upgrade_v2(path)
+        if target_version >= 5 and version is not None:
+            from .erd_v5 import upgrade_v4
+            upgrade_v4(path)
+        if target_version >= 6 and version is not None:
+            from .erd_v6 import upgrade_v5
+            upgrade_v5(path)
     with connect(path) as c:
         legacy = c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users','courses','assessment_sessions')").fetchall()
         if legacy:
@@ -269,6 +275,12 @@ def initialize_database(path: Path | None = None, *, target_version: int = 4) ->
     if target_version >= 4:
         from .erd_v3 import upgrade_v2
         upgrade_v2(path)
+    if target_version >= 5:
+        from .erd_v5 import upgrade_v4
+        upgrade_v4(path)
+    if target_version >= 6:
+        from .erd_v6 import upgrade_v5
+        upgrade_v5(path)
 
 
 def _repair_missing_surnames(c) -> None:

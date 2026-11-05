@@ -153,6 +153,14 @@ class FacultyAssessmentManager:
     def engine_for_session(
         self, session_id: str, student_id: int | None = None
     ) -> AssessmentEngine:
+        session = self.session_for_student(session_id, student_id)
+        exam_id = session.get("exam_id")
+        if not exam_id:
+            raise ValueError("This session is not linked to a published faculty exam.")
+        return self.engine_for_exam(str(exam_id))
+
+    def session_for_student(self, session_id: str, student_id: int | None = None) -> dict:
+        """Authorize recording access without opening the course's search index."""
         session = self.sessions.get(session_id)
         recorded_student_id = session.get("student_id")
         if (
@@ -161,7 +169,4 @@ class FacultyAssessmentManager:
             and int(recorded_student_id) != int(student_id)
         ):
             raise PermissionError("This assessment session belongs to another student.")
-        exam_id = session.get("exam_id")
-        if not exam_id:
-            raise ValueError("This session is not linked to a published faculty exam.")
-        return self.engine_for_exam(str(exam_id))
+        return session

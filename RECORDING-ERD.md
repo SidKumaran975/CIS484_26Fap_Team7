@@ -1,4 +1,22 @@
-# Recording ERD — schema version 4
+# Recording ERD — schema version 6
+
+Version 6 keeps professor questions in the question bank and stores per-turn
+prompts and follow-up concepts on INTERACTION. Its backed-up migration removes
+the old per-turn bank copies while preserving interaction and transcript history.
+
+Version 5 aligns the running SQLite system with `ERD (Page 1) (10).png`.
+All 19 diagram entities are physical tables. `CLIP_RESP` now uses the diagram's
+`RespClip` primary key and `Recording` foreign key; `CLIP_TRANS.RespClipID`
+references `CLIP_RESP.RespClip`. An exam may have multiple `QUEST_BANK` rows.
+The existing authoring flow continues to use its default bank, whose BankID
+equals ExamID. The migration retains all rows, validates every compatibility
+view and foreign key, and saves a `before-erd-v5-*.sqlite3` backup first.
+
+This is an operational implementation of the ERD, not an exact 19-table-only
+schema. Supporting fields/tables listed below remain to preserve publishing,
+authentication roles, resumable sessions, analytics, and historical data.
+The separate `database/schema-snapshot-sqlserver.sql` is the 19-table diagram
+inspection copy for SSMS; the running application still uses SQLite.
 
 Implements `ERD (Page 1) (9).png` and the full/part recording definitions.
 Version 4 accommodates both main's v2 database and an earlier local v3 variant.
@@ -24,9 +42,9 @@ and INTERACTION tables remain, with the new ERD fields and relationships.
 
 AVATAR, QUESTION_BANK, RESPONSE, RESP_TRANS, RESP_REC, and EVALUATION are
 compatibility **views**, not separate authoritative stores. Existing portal and
-report APIs read from the canonical data. `CLIP_RESP.RecordingID` implements the
-diagram's recording foreign key; `RespClipID` names its primary key consistently
-with the transcription foreign key.
+report APIs read from the canonical data. `CLIP_RESP.Recording` implements the
+diagram's recording foreign key; `RespClip` is its primary key, referenced by
+`CLIP_TRANS.RespClipID`.
 
 ## Mapping issues and retained extensions
 
@@ -41,7 +59,7 @@ with the transcription foreign key.
 | Exam settings, soft deletion, publication snapshot | SettingsJSON, DeletedAt, media/owner fields, and EXAM_PUBLICATION remain. Published exams remain independent of editable drafts. |
 | TimeLimit | Existing values still represent seconds per question. This migration does not reinterpret them as a total exam limit. |
 | Question rubric, external ID, order, active state | Retained as QUEST_ESS extensions, including QuestionData JSON. QUEST_BANK groups an exam's source questions; DocSource is nullable because an exam may use multiple EXAM_DOC sources. |
-| Essential questions and changing drafts | Each live interaction uses an immutable essential-question snapshot. Bank snapshots retain BankID. Follow-ups get a separate concept question with BankID NULL, generated from the evaluator's rationale (missing concepts, misconception, or rubric); a deterministic rubric-based fallback covers older model output. ParentQuestionID preserves report grouping under the original bank question. |
+| Essential questions and changing drafts | INTERACTION stores the actual prompt and EssentialQuestion for each exchange. QuestionID links to the original professor bank question; follow-ups do not add QUEST_ESS rows. ExternalQuestionID preserves report grouping even for historical/standalone sessions without a bank question. Version 6 migrates old snapshots and follow-up concepts onto interactions and removes those duplicate bank entries after making a backup. |
 | Evaluation and next action | INTERACTION.Evaluation preserves the entire model JSON; NextAction preserves the decision. The faculty transcript view renders criterion judgments, evidence, missing concepts, misconceptions, and uncertainty. Existing attainment reports remain available. |
 | Session progress, retrieval evidence, next prompt | Session progress fields and INTERACTION.RetrievedJSON / NextPrompt remain to resume and audit the exam. |
 | Response duration | CLIP_RESP.Duration remains as an optional extension. |

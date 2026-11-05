@@ -19,6 +19,8 @@ content-addressed to prevent stale generated-media caches; old files may remain
 on disk, but they are not additional avatar records.
 
 Accounts without an uploaded avatar use the shared BabAvatar.png and Sid.wav.
+The portal can start without BabAvatar.png so faculty can upload their own media.
+Avatar assessments without uploaded media require that default image to be restored.
 If the selected avatar's files are missing, rendering reports an error.
 
 The cache includes the selected assets, keeping different professors' videos

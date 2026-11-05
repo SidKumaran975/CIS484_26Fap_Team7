@@ -1,6 +1,10 @@
-# Current schema: recording ERD, version 4
+# Current schema: recording ERD, version 6
 
-The local database has been upgraded to the attached recording/interaction ERD.
+The system implements the recording/interaction ERD, page 10. Version 5 aligns
+the clip key names and allows multiple question banks per exam. Supporting app
+fields and tables are retained; the live database is not a 19-table-only copy.
+Version 6 keeps professor exam questions in QUEST_ESS. QUEST_BANK holds bank metadata; QUESTION_BANK is a compatibility view of the same question rows. Interactions never insert bank questions. Actual prompts and follow-up concepts live on INTERACTION, linked to the original professor question. A backed-up upgrade moves existing per-turn snapshots and follow-up concepts onto interactions before removing those bank entries.
+
 See [RECORDING-ERD.md](RECORDING-ERD.md) for canonical tables, field mappings,
 preserved extensions, recording behavior, and migration/verification instructions.
 The current database remains `runtime/assessment.sqlite3`; backups are under

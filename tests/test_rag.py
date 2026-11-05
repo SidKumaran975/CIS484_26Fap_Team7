@@ -1,5 +1,6 @@
 import sqlite3
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -238,6 +239,52 @@ class CourseTests(unittest.TestCase):
             finally:
                 engine.close()
 
+    def test_blank_follow_up_generates_specific_question(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = Settings(
+                course_content_dir=COURSE_DIR,
+                vector_db_path=root / "qdrant",
+                session_db_path=root / "sessions.sqlite3",
+                media_dir=root / "media",
+                embed_model="fake",
+                evaluation_model="fake",
+                media_mode="none",
+            )
+            engine = AssessmentEngine(settings)
+            try:
+                engine.index._embed = fake_embeddings
+                engine.publish_course()
+                session = engine.start_session()
+                question = engine.assessment.questions[0]
+                evaluation = Evaluation(
+                    criterion_results=[
+                        CriterionResult(criterion_id=c.id, status="partial", reason="Incomplete explanation")
+                        for c in question.rubric
+                    ],
+                    uncertainty="low",
+                    suggested_follow_up="  ",
+                    missing_concepts=["durability"],
+                )
+                prompt = "How does durability affect a committed transaction after a crash?"
+                response = SimpleNamespace(message=SimpleNamespace(content=(
+                    '{"question": "' + prompt + '", '
+                    '"essential_question": "What does transaction durability mean?"}'
+                )))
+                with patch.object(engine.evaluator, "evaluate", return_value=evaluation), patch.object(
+                    engine.evaluator.client, "chat", return_value=response
+                ) as chat:
+                    result = engine.submit_response(session["session_id"], "Atomicity is all or nothing.")
+                self.assertEqual(result["action"], "probe")
+                self.assertEqual(result["next_prompt"], prompt)
+                self.assertEqual(result["evaluation"]["suggested_follow_up"], prompt)
+                self.assertEqual(engine.sessions.get(session["session_id"])["current_prompt"], prompt)
+                payload = chat.call_args.kwargs["messages"][1]["content"]
+                self.assertIn("durability", payload)
+                self.assertIn("Atomicity is all or nothing.", payload)
+            finally:
+                engine.close()
+
     def test_avatar_media_generation_and_cache(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -250,6 +297,8 @@ class CourseTests(unittest.TestCase):
                 wav2lip_resize_factor=2,
             )
             generator = MediaGenerator(settings)
+            generator.avatar = root / "avatar.png"
+            generator.avatar.write_bytes(b"test avatar; rendering is mocked")
             commands = []
 
             def fake_run(command, cwd, label):

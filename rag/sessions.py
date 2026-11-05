@@ -63,25 +63,22 @@ class SessionStore:
         return self.get(session_id)
 
     def prepare_interaction(self, session_id, question_id, prompt, essential_question=None):
-        """Create the exchange before playback; follow-ups have their own concept."""
+        """Save the asked question on the exchange without adding bank entries."""
         with self.lock, self._connection() as c:
             pending = c.execute('SELECT InteractionID FROM INTERACTION WHERE SessionID=? AND Evaluation IS NULL', (session_id,)).fetchone()
             if pending:
                 return pending[0]
             session = c.execute('SELECT * FROM "SESSION" WHERE SessionID=?', (session_id,)).fetchone()
             parent = (session['ExamID'] or 'legacy:' + session_id) + ':' + question_id
-            c.execute('''INSERT OR IGNORE INTO QUEST_ESS(QuestionID,ExamID,ExternalQuestionID,QuestionText,QuestionSource,SequenceNumber,QuestionData,IsActive)
-                VALUES(?,?,?,?,?,0,?,0)''', (parent, session['ExamID'], question_id, prompt, 'legacy', json.dumps({'id': question_id, 'question': prompt})))
+            bank_question = c.execute('SELECT QuestionID FROM QUEST_ESS WHERE QuestionID=?', (parent,)).fetchone()
+            parent = bank_question[0] if bank_question else None
             interaction_id = str(uuid.uuid4())
-            essential_id = ('followup:' if essential_question else 'snapshot:') + interaction_id
-            bank = c.execute('SELECT BankID FROM QUEST_ESS WHERE QuestionID=?',(parent,)).fetchone()[0]
             essential_text = essential_question or prompt
-            c.execute('''INSERT INTO QUEST_ESS(QuestionID,ExternalQuestionID,QuestionText,QuestionSource,BankID,SequenceNumber,QuestionData,IsActive)
-                VALUES(?,?,?,?,?,0,?,0)''', (essential_id,question_id,essential_text,'follow_up' if essential_question else 'publication_snapshot',
-                    None if essential_question else bank,json.dumps({'question':essential_text})))
             number = c.execute('SELECT count(*)+1 FROM INTERACTION WHERE SessionID=?',(session_id,)).fetchone()[0]
-            c.execute('''INSERT INTO INTERACTION(InteractionID,SessionID,QuestionID,ParentQuestionID,ActualQuestionTxt,SequenceNumber,StartTime,NextAction)
-                VALUES(?,?,?,?,?,?,?,'pending')''', (interaction_id,session_id,essential_id,parent,prompt,number,''))
+            c.execute('''INSERT INTO INTERACTION(InteractionID,SessionID,QuestionID,ParentQuestionID,
+                ExternalQuestionID,EssentialQuestion,ActualQuestionTxt,SequenceNumber,StartTime,NextAction)
+                VALUES(?,?,?,?,?,?,?,?,?,'pending')''',
+                (interaction_id,session_id,parent,parent,question_id,essential_text,prompt,number,''))
             return interaction_id
 
     def question_media(self, session_id, path):
@@ -154,16 +151,16 @@ class SessionStore:
                 if recording and (not pending['StartTime'] or not pending['QuestionEndTime']):
                     raise ValueError('Question playback timestamps are required')
                 connection.execute('''INSERT OR IGNORE INTO RECORDING(RecordingID,SessionID,StartTime) SELECT SessionID,SessionID,StartTime FROM "SESSION" WHERE SessionID=?''',(session_id,))
-                connection.execute('INSERT INTO CLIP_RESP(RespClipID,InteractionID,RecordingID) VALUES(?,?,?)',(turn_id,turn_id,session_id))
+                connection.execute('INSERT INTO CLIP_RESP(RespClip,InteractionID,Recording) VALUES(?,?,?)',(turn_id,turn_id,session_id))
                 connection.execute('INSERT INTO CLIP_TRANS VALUES(?,?,?)',(turn_id,turn_id,transcript))
                 connection.execute('''UPDATE INTERACTION SET Evaluation=?,PickedTransID=?,NextAction=?,NextPrompt=?,RetrievedJSON=?,EndTime=? WHERE InteractionID=?''',
                     (json.dumps(evaluation),turn_id,action,next_prompt,json.dumps(retrieved),now,turn_id))
-            connection.execute('UPDATE CLIP_RESP SET EndTime=? WHERE RespClipID=?',(now,turn_id))
+            connection.execute('UPDATE CLIP_RESP SET EndTime=? WHERE RespClip=?',(now,turn_id))
             if recording:
                 start, end = recording.get('start_time'), recording.get('end_time')
                 if start and end and (end < start or (pending and start < pending['QuestionEndTime'])):
                     raise ValueError('Response timestamps are out of order')
-                connection.execute('''UPDATE CLIP_RESP SET AudioFilePath=?,Duration=?,FileFormat=?,StartTime=?,EndTime=coalesce(?,EndTime) WHERE RespClipID=?''',
+                connection.execute('''UPDATE CLIP_RESP SET AudioFilePath=?,Duration=?,FileFormat=?,StartTime=?,EndTime=coalesce(?,EndTime) WHERE RespClip=?''',
                     (recording['path'],recording.get('duration'),recording.get('format'),start,end,turn_id))
             connection.execute(
                 "UPDATE assessment_sessions SET question_index = ?, "
@@ -219,10 +216,10 @@ class SessionStore:
                     "SELECT t.question_id, t.turn_number, t.prompt, t.transcript, t.action, "
                     "t.next_prompt, t.created_at, r.RecordingID AS recording_id, "
                     "r.FileFormat AS recording_format, r.Duration AS recording_duration, "
-                    "i.Evaluation, q.QuestionText essential_question, i.StartTime, i.QuestionEndTime, i.EndTime, "
+                    "i.Evaluation, i.EssentialQuestion essential_question, i.StartTime, i.QuestionEndTime, i.EndTime, "
                     "clip.StartTime response_start,clip.EndTime response_end,i.ActualQuestionVid,i.InteractionID "
                     "FROM assessment_turns t LEFT JOIN RESP_REC r ON r.ResponseID=t.id "
-                    "JOIN INTERACTION i ON i.InteractionID=t.id JOIN QUEST_ESS q ON q.QuestionID=i.QuestionID "
+                    "JOIN INTERACTION i ON i.InteractionID=t.id "
                     "LEFT JOIN CLIP_RESP clip ON clip.InteractionID=i.InteractionID "
                     "WHERE t.session_id = ? ORDER BY t.turn_number",
                     (session_row["id"],),

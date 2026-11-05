@@ -71,6 +71,12 @@ class MediaGenerator:
         if mode not in {"audio", "avatar"}:
             raise ValueError("MEDIA_MODE must be none, audio, or avatar")
         avatar, reference_audio = self.avatar, self.reference_audio
+        if examiner is None and mode == "avatar" and not avatar.is_file():
+            raise ValueError(
+                "Default avatar image is missing (BabAvatar.png). Upload a photo and "
+                "voice under Professor avatar in the faculty portal, or restore BabAvatar.png "
+                "in the project folder before starting this assessment."
+            )
         if examiner is not None:
             avatar, reference_audio = profile_paths(examiner["professor_id"], examiner["media_version"])
             if not reference_audio.is_file() or (mode == "avatar" and not avatar.is_file()):

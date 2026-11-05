@@ -15,7 +15,7 @@ class RecordingERDTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / 'exam.db'
 
-    def seed(self, version=4):
+    def seed(self, version=6):
         initialize_database(self.path,target_version=version)
         with connect(self.path) as c:
             c.execute("INSERT INTO users VALUES(1,'prof','Professor','faculty','hash','now')")
@@ -58,8 +58,10 @@ class RecordingERDTests(unittest.TestCase):
         with connect(self.path) as c:
             row=c.execute('SELECT * FROM INTERACTION').fetchone()
             essential=c.execute('SELECT * FROM QUEST_ESS WHERE QuestionID=?',(row['QuestionID'],)).fetchone()
-            self.assertIsNone(essential['BankID'])
-            self.assertEqual(essential['QuestionText'],'Explain atomicity and rollback.')
+            self.assertEqual(essential['BankID'],'exam')
+            self.assertEqual(essential['QuestionText'],'Explain transactions')
+            self.assertEqual(row['EssentialQuestion'],'Explain atomicity and rollback.')
+            self.assertEqual(c.execute('SELECT count(*) FROM QUEST_ESS').fetchone()[0],1)
             self.assertEqual(row['PickedTransID'],interaction)
             self.assertGreaterEqual(row['EndTime'],'2026-01-01T00:00:06+00:00')
             c.execute('INSERT INTO CLIP_TRANS VALUES(?,?,?)',('alternate',interaction,'Alternate transcript'))
@@ -124,7 +126,7 @@ class RecordingERDTests(unittest.TestCase):
         c.close()
         initialize_database(self.path)
         with connect(self.path) as c:
-            self.assertEqual(c.execute('SELECT max(version) FROM schema_migrations').fetchone()[0],4)
+            self.assertEqual(c.execute('SELECT max(version) FROM schema_migrations').fetchone()[0],6)
             self.assertEqual(c.execute('SELECT transcript FROM assessment_turns').fetchone()[0],'all or nothing')
             self.assertEqual(json.loads(c.execute('SELECT Evaluation FROM INTERACTION').fetchone()[0])['feedback'],'Good answer')
             self.assertTrue(c.execute('SELECT count(*) FROM LEGACY_ERD_FIELDS').fetchone()[0])

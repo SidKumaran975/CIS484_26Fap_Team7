@@ -51,7 +51,7 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(tuple(c.execute('SELECT UserID,FaceImagePath FROM AVATAR').fetchone()),(1,'new.png'))
             self.assertEqual(c.execute('SELECT UserID FROM COURSE').fetchone()[0],1)
             self.assertEqual(c.execute('SELECT UserID FROM "SESSION"').fetchone()[0],2)
-            self.assertEqual(c.execute('SELECT max(version) FROM schema_migrations').fetchone()[0],4)
+            self.assertEqual(c.execute('SELECT max(version) FROM schema_migrations').fetchone()[0],6)
             self.assertEqual(c.execute('PRAGMA foreign_key_check').fetchall(),[])
         self.assertEqual(len(list((self.root/'database-backups').glob('before-erd-v2-*.sqlite3'))),1)
 

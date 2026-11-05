@@ -204,7 +204,7 @@ def upgrade_previous_v3(path):
         source.backup(dest)
     with tempfile.TemporaryDirectory(prefix='erd-v4-',dir=path.parent) as folder:
         staged = Path(folder) / 'assessment.sqlite3'
-        initialize_database(staged)
+        initialize_database(staged, target_version=4)
         with closing(sqlite3.connect(backup)) as source, connect(staged) as target:
             source.row_factory = sqlite3.Row
             target.execute('PRAGMA foreign_keys=OFF')

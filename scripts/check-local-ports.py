@@ -7,6 +7,9 @@ import urllib.request
 
 def busy(port):
     with socket.socket() as sock:
+        # Match the servers' bind behavior: recently closed connections in
+        # TIME_WAIT must not prevent a normal restart.
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind(("127.0.0.1", port))
         except OSError:

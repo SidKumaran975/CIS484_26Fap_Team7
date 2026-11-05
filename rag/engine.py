@@ -141,9 +141,12 @@ class AssessmentEngine:
             completed = False
             next_question_id = question.id
             next_number = question_index + 1
-            next_prompt = evaluation.suggested_follow_up.strip() or (
-                "Please expand on the required concept that was missing from your answer."
-            )
+            next_prompt = evaluation.suggested_follow_up.strip()
+            if not next_prompt:
+                with analytics_stage("follow_up_generation"):
+                    next_prompt = self.evaluator.generate_follow_up(
+                        question, combined_response, evaluation, current_prompt
+                    )
             progress = (question_index, follow_up_count + 1, False)
 
         turn_id = self.sessions.record_turn_and_update(

@@ -71,7 +71,6 @@ def preflight() -> None:
                     "Wav2Lip face detector",
                     ROOT_DIR / "Wav2Lip" / "face_detection" / "detection" / "sfd" / "s3fd.pth",
                 ),
-                ("Avatar image", ROOT_DIR / "BabAvatar.png"),
             ]
         )
     if MEDIA_MODE not in {"none", "audio", "avatar"}:
@@ -80,6 +79,12 @@ def preflight() -> None:
     missing = [f"{label}: {path}" for label, path in checks if not path.exists()]
     if missing:
         raise SystemExit("Preflight failed:\n  " + "\n  ".join(missing))
+    if MEDIA_MODE == "avatar" and not (ROOT_DIR / "BabAvatar.png").is_file():
+        log.warning(
+            "Default avatar image is missing: %s. Upload a photo and voice under "
+            "Professor avatar in the faculty portal, or restore this file before "
+            "using assessments without an uploaded avatar.", ROOT_DIR / "BabAvatar.png"
+        )
 
 
 def main() -> None:
