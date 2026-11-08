@@ -268,6 +268,7 @@ class ProfessorMediaTests(unittest.TestCase):
         self.assertEqual(attainment.status_code, 200)
         self.assertEqual(attainment.json()['totals']['key_points_met'], 1)
         self.assertTrue(attainment.json()['completed'])
+        self.assertTrue(all(r['url'] is None for r in attainment.json()['recordings']))
         self.assertEqual(attainment.json()['questions'][0]['exchanges'][0]['response'], 'Reliable delivery')
         self.assertEqual(faculty.get(f'/reports/{session["id"]}').status_code, 200)
         # Reports must use the database publication, not an editable draft or export.
@@ -330,6 +331,7 @@ class ProfessorMediaTests(unittest.TestCase):
     def test_full_and_question_recordings_require_owning_faculty(self):
         faculty=self.client('prof_a')
         payload=self.seed_exam(faculty,'exam_7777777777')
+        self.assertEqual(faculty.post('/api/exams/exam_7777777777/publish', json=payload).status_code, 200)
         store=self.portal.TRANSCRIPTS
         session=store.create(payload['course_id'],'exam_7777777777')
         interaction=store.prepare_interaction(session['id'],'q1','Explain TCP')
@@ -348,6 +350,15 @@ class ProfessorMediaTests(unittest.TestCase):
             self.assertEqual(self.client('student').get(url).status_code,403)
             with TestClient(self.portal.app) as anonymous:
                 self.assertEqual(anonymous.get(url).status_code,401)
+        report_url = f"/api/reports/{session['id']}"
+        report = faculty.get(report_url)
+        self.assertEqual(report.status_code, 200)
+        recordings = report.json()['recordings']
+        self.assertEqual(len(recordings), 1)
+        self.assertEqual(recordings[0]['url'], f"/api/full-recordings/{session['id']}")
+        self.assertEqual(recordings[0]['status'], 'complete')
+        self.assertNotIn(str(full), report.text)
+        self.assertEqual(self.client('prof_b').get(report_url).status_code, 404)
 
     def test_database_publication_survives_export_loss_and_draft_edits(self):
         faculty = self.client('prof_a')

@@ -28,6 +28,10 @@ h1{margin:6px 0 4px;font-size:30px;letter-spacing:-.03em}
 .stat b{display:block;font-size:22px}
 .stat span{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:800}
 .note{color:var(--muted);font-size:13px;margin:0 0 14px}
+.session-recording{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:22px}
+.session-recording > summary{font-size:18px;font-weight:750;color:var(--text);cursor:pointer}
+.session-recording[open] > summary{margin-bottom:10px}
+.session-recording video{display:block;width:100%;max-width:960px;max-height:65vh;background:#000;border-radius:10px;margin:10px 0}
 .table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:16px;background:var(--panel)}
 table{width:100%;border-collapse:collapse;min-width:900px}
 th{position:sticky;top:0;background:var(--panel-2);text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--gold);padding:12px 14px;border-bottom:1px solid var(--line)}
@@ -39,10 +43,6 @@ td.seq{font-weight:850;color:var(--gold);font-variant-numeric:tabular-nums}
 .qvideo{display:block;width:100%;max-width:360px;margin-top:8px;border-radius:10px;background:#000}
 td.attain{width:30%;background:rgba(32,24,43,.55)}
 .qnum{color:var(--muted);font-size:12px;font-weight:800;display:block;margin-bottom:4px}
-.tag{display:inline-block;margin-top:6px;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:800;border:1px solid}
-.tag.same{border-color:#553570;background:#251733;color:#c9a6e8}
-.tag.rephrased{border-color:#5f5232;background:#2a2415;color:#dfc984}
-.tag.follow{border-color:#2f4a6b;background:#152233;color:#9cc4f0}
 .response{white-space:pre-wrap}
 .summary{font-weight:800;margin-bottom:8px}
 .points{list-style:none;margin:0;padding:0;display:grid;gap:8px}
@@ -67,6 +67,7 @@ summary{cursor:pointer}
   :root{color-scheme:light}
   body{background:#fff;color:#000}
   .actions{display:none}
+  .session-recording{display:none}
   .stat,.table-wrap,td.essential,td.attain,th{background:#fff!important;color:#000}
   th{color:#000;position:static}
   .table-wrap{overflow:visible}
@@ -92,8 +93,12 @@ summary{cursor:pointer}
   </div>
   <div id="status">Loading report…</div>
   <div id="report" hidden>
+    <details class="session-recording" aria-label="Full session recording">
+      <summary>Full session recording</summary>
+      <div id="sessionRecordings"></div>
+    </details>
     <div class="stats" id="stats"></div>
-    <p class="note">Attainment combines every turn for an essential question: a key point counts as met if the student met it in the original answer or in a follow-up. The AI grading supports your judgment; the grade is yours.</p>
+    <p class="note">Each row shows that interaction’s saved evaluation. Follow-up evaluations may include evidence from earlier answers. The key-point total summarizes the best status across interactions. The AI grading supports your judgment; the grade is yours.</p>
     <div class="table-wrap">
       <table>
         <thead><tr><th class="seq-h" title="Order the question was asked">#</th><th>Essential question</th><th>Actual question</th><th>Transcript text</th><th>Evaluation</th></tr></thead>
@@ -106,11 +111,6 @@ summary{cursor:pointer}
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const when = s => { if (!s) return ""; const d = new Date(s); return isNaN(d) ? "" : d.toLocaleString(); };
-
-function phrasingTag(text) {
-  const cls = text === "Asked as written" ? "same" : text === "Rephrased" ? "rephrased" : "follow";
-  return `<span class="tag ${cls}">${esc(text)}</span>`;
-}
 
 function questionCell(e) {
   const text = esc(e.actual_question);
@@ -178,21 +178,27 @@ function render(r) {
   document.title = `${r.student_name} · Attainment Report`;
   $("student").textContent = r.student_name;
   $("meta").textContent = [r.course, r.exam_title, when(r.started_at), r.completed ? "Complete" : "In progress"].filter(Boolean).join(" · ");
+  $("sessionRecordings").innerHTML = (r.recordings || []).length
+    ? r.recordings.map((recording, index) => `<div>
+        <div class="sub">${r.recordings.length > 1 ? `Recording ${index + 1} · ` : ""}${esc(recording.status)}${recording.start_time ? ` · ${esc(when(recording.start_time))}` : ""}</div>
+        ${recording.url ? `<video controls preload="metadata" playsinline aria-label="Full session recording ${index + 1}" src="${esc(recording.url)}"></video><a href="${esc(recording.url)}" download>Download recording</a>` : `<p class="empty">Recording is not available yet.</p>`}
+      </div>`).join("")
+    : '<p class="empty">No full session recording was saved for this session.</p>';
   const t = r.totals;
   $("stats").innerHTML = `
     <div class="stat"><span>Questions reached</span><b>${t.questions_reached} / ${t.questions}</b></div>
     <div class="stat"><span>Key points met</span><b>${t.key_points_met} / ${t.key_points}</b></div>`;
   $("rows").innerHTML = r.questions.map(q => {
     const essential = `<td class="essential" rowspan="${Math.max(q.exchanges.length, 1)}"><span class="qnum">Question ${q.number}</span>${esc(q.essential_question)}</td>`;
-    const attain = `<td class="attain" rowspan="${Math.max(q.exchanges.length, 1)}">${attainmentCell(q.attainment)}</td>`;
+    const attain = `<td class="attain">${attainmentCell(q.attainment)}</td>`;
     if (!q.exchanges.length)
       return `<tr class="group-start"><td class="seq">—</td>${essential}<td colspan="2" class="empty">Not reached in this session.</td>${attain}</tr>`;
     return q.exchanges.map((e, i) => `<tr${i === 0 ? ' class="group-start"' : ""}>
       <td class="seq">${esc(e.turn_number)}</td>
       ${i === 0 ? essential : ""}
-      <td class="question">${questionCell(e)}${phrasingTag(e.phrasing)}</td>
+      <td class="question">${questionCell(e)}</td>
       <td class="response">${transcriptCell(e)}</td>
-      ${i === 0 ? attain : ""}
+      <td class="attain">${attainmentCell(e.attainment)}</td>
     </tr>`).join("");
   }).join("");
   $("status").hidden = true;

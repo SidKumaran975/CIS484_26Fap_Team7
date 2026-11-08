@@ -573,7 +573,20 @@ def attainment_report(session_id: str, user: dict = Depends(require_faculty)):
             exam = read_publication(connection, exam_id)
     except KeyError:
         raise HTTPException(404, "The published exam for this report is missing.")
-    return build_attainment_report(exam, session, load_turns(TRANSCRIPTS, session_id))
+    report = build_attainment_report(exam, session, load_turns(TRANSCRIPTS, session_id))
+    with db() as connection:
+        recordings = connection.execute(
+            "SELECT RecordingID, StartTime, EndTime, RecordingStatus, RecordingPath "
+            "FROM RECORDING WHERE SessionID=? ORDER BY StartTime, RecordingID",
+            (session_id,),
+        ).fetchall()
+    report['recordings'] = [
+        {'id': row['RecordingID'], 'start_time': row['StartTime'],
+         'end_time': row['EndTime'], 'status': row['RecordingStatus'],
+         'url': f"/api/full-recordings/{row['RecordingID']}" if row['RecordingPath'] else None}
+        for row in recordings
+    ]
+    return report
 
 
 # ================= COURSES =================

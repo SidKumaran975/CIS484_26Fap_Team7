@@ -94,6 +94,15 @@ class AttainmentReportTests(unittest.TestCase):
         self.assertEqual(points[1]["turn_number"], 2)
         self.assertEqual(points[1]["evidence"], "real-time data")
 
+    def test_each_exchange_uses_its_own_saved_evaluation(self):
+        opening, follow_up = self.report()["questions"][0]["exchanges"]
+        self.assertEqual([p["status"] for p in opening["attainment"]["key_points"]],
+                         ["met", "not_met"])
+        self.assertEqual([p["status"] for p in follow_up["attainment"]["key_points"]],
+                         ["partial", "met"])
+        self.assertEqual(opening["evaluation"]["criterion_results"][1]["status"], "not_met")
+        self.assertEqual(follow_up["attainment"]["key_points"][1]["evidence"], "real-time data")
+
     def test_summary_uncertainty_and_misconceptions(self):
         report = self.report()
         q1, q2, q3 = report["questions"]
@@ -112,6 +121,7 @@ class AttainmentReportTests(unittest.TestCase):
             turn["evaluation_json"] = "not json"
         report = build_attainment_report(EXAM, self.store.get(self.session["id"]), turns)
         self.assertEqual(report["questions"][0]["attainment"]["met"], 0)
+        self.assertEqual(report["questions"][0]["exchanges"][0]["attainment"]["met"], 0)
         json.dumps(report)  # the API must be able to return it
 
 
@@ -157,6 +167,7 @@ class AttainmentReportTests(unittest.TestCase):
         self.assertEqual([q["question_id"] for q in report["questions"]], ["q1", "q2"])
         self.assertTrue(report["questions"][1]["reached"])
         self.assertEqual(report["questions"][1]["exchanges"][0]["response"], "It's just newer.")
+        self.assertEqual(report["questions"][1]["exchanges"][0]["attainment"]["uncertainty"], "high")
 
 
 if __name__ == "__main__":

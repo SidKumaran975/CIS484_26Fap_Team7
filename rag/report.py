@@ -8,8 +8,8 @@ Builds the four-part report Dr. Babik sketched for a given student:
 * Actual question(s): what the examiner actually asked for it, meaning the
   opening prompt plus any follow-ups (probe, clarify, deepen).
 * Response: the student's transcribed answer to each actual question.
-* Attainment: how well the student met each key point of the essential
-  question, combined across all of its turns.
+* Evaluation: the saved grading for each individual interaction. Question
+  totals additionally summarize attainment across its turns.
 
 This module only reads data. It does not create or change any tables, so it
 works with the current session store and with the unified database, which
@@ -185,6 +185,8 @@ def build_attainment_report(exam: dict, session: dict, turns: list[dict]) -> dic
                     "recording_duration": turn["recording_duration"],
                     "interaction_id": turn["interaction_id"],
                     "question_video": turn["has_question_video"],
+                    "evaluation": turn["evaluation"],
+                    "attainment": _question_attainment(key_points, [turn]),
                 }
             )
             previous_action = turn["action"]
@@ -230,6 +232,8 @@ def build_attainment_report(exam: dict, session: dict, turns: list[dict]) -> dic
                 "recording_duration": turn["recording_duration"],
                 "interaction_id": turn["interaction_id"],
                 "question_video": turn["has_question_video"],
+                "evaluation": turn["evaluation"],
+                "attainment": _question_attainment(key_points, [turn]),
             })
             previous_action = turn["action"]
         questions.append({

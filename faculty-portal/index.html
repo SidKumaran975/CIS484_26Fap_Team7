@@ -315,7 +315,6 @@ summary{cursor:pointer;color:var(--muted)}
     <nav class="nav" aria-label="Main">
       <button data-nav="dashboard" class="active"><span class="ico">⌂</span><span class="label">Dashboard</span></button>
       <button data-nav="builder"><span class="ico">✦</span><span class="label">Exam Builder</span></button>
-      <button data-nav="transcripts"><span class="ico">≡</span><span class="label">Transcripts</span></button>
       <button data-nav="analytics"><span class="ico">▥</span><span class="label">Analytics</span></button>
     </nav>
     <div class="nav-heading"><span>Your courses</span><button id="sideAddCourse" title="Add course" aria-label="Add course">+</button></div>
@@ -510,16 +509,6 @@ summary{cursor:pointer;color:var(--muted)}
           </div>
         </aside>
       </div>
-    </section>
-
-    <!-- ================= TRANSCRIPTS ================= -->
-    <section id="view-transcripts" class="view hidden">
-      <div class="topbar">
-        <div><h1>Assessment Transcripts</h1><p>Faster Whisper transcriptions from students taking your published exams.</p></div>
-        <button class="btn secondary" id="refreshTranscriptsBtn">Refresh</button>
-      </div>
-      <div class="section-head"><div><h2>Recent Sessions</h2><p id="transcriptsStatus">Loading transcripts…</p></div></div>
-      <div id="transcriptsList" class="transcript-list"></div>
     </section>
 
     <!-- ================= ANALYTICS ================= -->
@@ -800,7 +789,6 @@ function show(view) {
 }
 document.querySelectorAll("[data-nav]").forEach(b => b.addEventListener("click", () => {
   if (b.dataset.nav === "dashboard") { renderDashboard(); show("dashboard"); }
-  else if (b.dataset.nav === "transcripts") { show("transcripts"); loadTranscripts(); }
   else if (b.dataset.nav === "analytics") { show("analytics"); loadAnalytics(); }
   else { show("builder"); if (!$("courseSel").value && state.courses.length) newExam(null, { keep: true }); }
 }));
@@ -1318,48 +1306,6 @@ async function publish() {
   finally { setBusy(false); }
 }
 $("publishBtn").onclick = publish; $("publishTopBtn").onclick = publish;
-
-/* ============ TRANSCRIPTS ============ */
-  function renderTurnEvaluation(e,action){
-    const list=(title,items)=>items?.length ? `<p><strong>${title}</strong></p><ul>${items.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>` : "";
-    return `<details><summary>Evaluation · ${esc((action || "").replaceAll("_"," "))}</summary>
-    ${(e.criterion_results || []).map(r=>`<p><strong>${esc(r.criterion_id)}: ${esc(r.status.replaceAll("_"," "))}</strong><br>${esc(r.reason || "")}${r.student_evidence ? `<br>Student evidence: ${esc(r.student_evidence)}` : ""}</p>`).join("")}
-    ${list("Missing concepts",e.missing_concepts)}${list("Misconceptions",e.misconceptions)}
-    ${e.uncertainty ? `<p>Uncertainty: ${esc(e.uncertainty)} — ${esc(e.uncertainty_reason || "")}</p>` : ""}
-    ${e.feedback ? `<p>${esc(e.feedback)}</p>` : ""}</details>`;
-  }
-async function loadTranscripts() {
-  const btn = $("refreshTranscriptsBtn"); btn.disabled = true;
-  $("transcriptsStatus").textContent = "Loading transcripts…";
-  try {
-    const data = await API.transcripts(), sessions = data.sessions || [];
-    $("transcriptsList").innerHTML = sessions.length ? sessions.map((s, index) => {
-      const student = s.student_name || s.student_username || "Unknown student";
-      const started = s.created_at ? new Date(s.created_at).toLocaleString() : "Unknown start time";
-      const messages = (s.messages || []).map(m => `
-        <div class="transcript-message ${m.speaker === "student" ? "student" : "examiner"}">
-          <span class="transcript-speaker">${m.speaker === "student" ? esc(student) : "Examiner"}</span><span class="transcript-text">${esc(m.text || "")}</span>
-          ${m.essential_question ? `<p><strong>Essential question:</strong> ${esc(m.essential_question)}</p>` : ""}
-          ${m.start_time || m.end_time ? `<p class="sub">${esc(m.start_time || "Unknown start")} — ${esc(m.end_time || m.question_end_time || "Unknown end")}</p>` : ""}
-          ${m.video_url ? `<video controls preload="none" style="width:100%;max-width:500px" src="${esc(m.video_url)}"></video>` : ""}
-          ${m.evaluation ? renderTurnEvaluation(m.evaluation,m.action) : ""}
-          ${m.recording ? `<div><audio controls preload="none" style="max-width:100%;margin-top:10px" aria-label="Student answer recording" src="${esc(m.recording.url)}"></audio><br><a href="${esc(m.recording.url)}" download>Download recording</a></div>` : ""}
-        </div>`).join("");
-      return `<details class="card transcript-session" ${index === 0 ? "open" : ""}>
-        <summary>
-          <div><strong>${esc(student)}</strong><div class="sub">${esc(s.course || "Course")} · ${esc(s.exam_title || "Oral assessment")} · ${esc(started)}</div></div>
-          <div class="transcript-meta"><span class="badge ${s.completed ? "green" : "gold"}">${s.completed ? "Complete" : s.status === "interrupted" ? "Interrupted" : "In progress"}</span><span class="badge purple">${Number(s.turn_count || 0)} answers</span>${s.turn_count ? `<a class="btn small secondary" href="/reports/${encodeURIComponent(s.id)}" target="_blank" rel="noopener" style="text-decoration:none" onclick="event.stopPropagation()">View report</a>` : ""}</div>
-        </summary>
-        <div class="transcript-messages">${(s.recordings || []).map(r => `<div><strong>Full session recording:</strong> ${esc(r.status)}${r.url ? `<video controls preload="none" style="width:100%;max-width:800px;display:block" src="${esc(r.url)}"></video><a href="${esc(r.url)}" download>Download full recording</a>` : ""}</div>`).join("")}${messages || `<div class="empty"><strong>No answers recorded</strong><p>The student started this session but has not submitted an answer.</p></div>`}</div>
-      </details>`;
-    }).join("") : `<div class="card empty"><strong>No transcripts yet</strong><p>Completed and in-progress student assessment sessions will appear here after Faster Whisper transcribes an answer.</p></div>`;
-    $("transcriptsStatus").textContent = `Showing ${sessions.length} recent session${sessions.length === 1 ? "" : "s"}.`;
-  } catch (e) {
-    $("transcriptsList").innerHTML = "";
-    $("transcriptsStatus").textContent = `Transcript error: ${e.message}`;
-  } finally { btn.disabled = false; }
-}
-$("refreshTranscriptsBtn").onclick = loadTranscripts;
 
 /* ============ ANALYTICS: courses -> exams -> sessions -> attainment report ============ */
 const drill = { course: null, exam: null };   // where the professor is in the drill-down
