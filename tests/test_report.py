@@ -115,5 +115,49 @@ class AttainmentReportTests(unittest.TestCase):
         json.dumps(report)  # the API must be able to return it
 
 
+    def test_answer_with_saved_audio_carries_its_clip_id(self):
+        turns = load_turns(self.store, self.session["id"])
+        first = turns[0]
+        with self.store._connection() as connection:
+            clip = connection.execute(
+                "SELECT RespClip FROM CLIP_RESP c JOIN INTERACTION i USING(InteractionID) "
+                "WHERE i.SessionID=? AND i.SequenceNumber=?",
+                (self.session["id"], first["turn_number"]),
+            ).fetchone()[0]
+            connection.execute(
+                "UPDATE CLIP_RESP SET AudioFilePath='/data/recordings/a.webm', Duration=12.4, "
+                "FileFormat='audio/webm' WHERE RespClip=?",
+                (clip,),
+            )
+        q1 = self.report()["questions"][0]
+        self.assertEqual(q1["exchanges"][0]["recording_id"], clip)
+        self.assertEqual(q1["exchanges"][0]["recording_duration"], 12.4)
+        self.assertIsNone(q1["exchanges"][1]["recording_id"])  # no audio saved
+
+    def test_question_with_saved_avatar_video_links_to_its_interaction(self):
+        with self.store._connection() as connection:
+            first = connection.execute(
+                "SELECT InteractionID FROM INTERACTION WHERE SessionID=? ORDER BY SequenceNumber LIMIT 1",
+                (self.session["id"],),
+            ).fetchone()[0]
+            connection.execute(
+                "UPDATE INTERACTION SET ActualQuestionVid='/data/media/q1.mp4' WHERE InteractionID=?",
+                (first,),
+            )
+        q1 = self.report()["questions"][0]
+        self.assertEqual(q1["exchanges"][0]["interaction_id"], first)
+        self.assertTrue(q1["exchanges"][0]["question_video"])
+        self.assertFalse(q1["exchanges"][1]["question_video"])  # follow-up without a saved video
+        self.assertNotIn("/data/media", json.dumps(self.report()))  # file paths never sent to the browser
+
+    def test_questions_missing_from_published_exam_are_still_shown(self):
+        edited = {**EXAM, "questions": [EXAM["questions"][0]]}  # q2 removed after the exam
+        session = self.store.get(self.session["id"])
+        report = build_attainment_report(edited, session, load_turns(self.store, session["id"]))
+        self.assertEqual([q["question_id"] for q in report["questions"]], ["q1", "q2"])
+        self.assertTrue(report["questions"][1]["reached"])
+        self.assertEqual(report["questions"][1]["exchanges"][0]["response"], "It's just newer.")
+
+
 if __name__ == "__main__":
     unittest.main()

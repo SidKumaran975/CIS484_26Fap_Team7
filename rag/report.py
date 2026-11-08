@@ -2,7 +2,7 @@
 
 Builds the four-part report Dr. Babik sketched for a given student:
 
-    Essential question | Actual question(s) | Response | Attainment
+    Essential question | Actual question(s) | Transcript text | Evaluation
 
 * Essential question: the professor's question from the published exam.
 * Actual question(s): what the examiner actually asked for it, meaning the
@@ -43,9 +43,15 @@ def load_turns(store: Any, session_id: str) -> list[dict]:
     """Read every turn of one session, including its evaluation, in order."""
     with store._connection() as connection:
         rows = connection.execute(
-            "SELECT question_id, turn_number, prompt, transcript, action, "
-            "evaluation_json, created_at FROM assessment_turns "
-            "WHERE session_id = ? ORDER BY turn_number",
+            "SELECT t.question_id, t.turn_number, t.prompt, t.transcript, t.action, "
+            "t.evaluation_json, t.created_at, i.EssentialQuestion AS essential_question, "
+            "clip.RespClip AS recording_id, clip.Duration AS recording_duration, "
+            "t.id AS interaction_id, (i.ActualQuestionVid IS NOT NULL AND i.ActualQuestionVid != '') AS has_question_video "
+            "FROM assessment_turns t "
+            "JOIN INTERACTION i ON i.InteractionID = t.id "
+            "LEFT JOIN CLIP_RESP clip ON clip.InteractionID = t.id "
+            "AND clip.AudioFilePath IS NOT NULL "
+            "WHERE t.session_id = ? ORDER BY t.turn_number",
             (session_id,),
         ).fetchall()
     return [dict(row) for row in rows]
@@ -140,6 +146,13 @@ def build_attainment_report(exam: dict, session: dict, turns: list[dict]) -> dic
                 "action": str(turn.get("action", "") or ""),
                 "asked_at": str(turn.get("created_at", "") or ""),
                 "evaluation": _parse_evaluation(turn.get("evaluation_json")),
+                "essential_question": str(turn.get("essential_question") or "").strip(),
+                # CLIP_RESP.RespClip: plays through /api/recordings/{recording_id}.
+                "recording_id": turn.get("recording_id") or None,
+                "recording_duration": turn.get("recording_duration"),
+                # INTERACTION.ActualQuestionVid: plays through /api/question-videos/{interaction_id}.
+                "interaction_id": turn.get("interaction_id") or None,
+                "has_question_video": bool(turn.get("has_question_video")),
             }
         )
 
@@ -168,6 +181,10 @@ def build_attainment_report(exam: dict, session: dict, turns: list[dict]) -> dic
                     "response": turn["response"],
                     "decision": turn["action"],
                     "asked_at": turn["asked_at"],
+                    "recording_id": turn["recording_id"],
+                    "recording_duration": turn["recording_duration"],
+                    "interaction_id": turn["interaction_id"],
+                    "question_video": turn["has_question_video"],
                 }
             )
             previous_action = turn["action"]
@@ -185,6 +202,44 @@ def build_attainment_report(exam: dict, session: dict, turns: list[dict]) -> dic
                 "attainment": attainment,
             }
         )
+
+    listed = {q["question_id"] for q in questions}
+    for question_id, question_turns in turns_by_question.items():
+        if question_id in listed:
+            continue
+        essential = next((t["essential_question"] for t in question_turns if t["essential_question"]),
+                         question_turns[0]["prompt"])
+        found = []
+        for turn in question_turns:
+            for result in turn["evaluation"].get("criterion_results", []) or []:
+                criterion_id = str(result.get("criterion_id", ""))
+                if criterion_id and criterion_id not in found:
+                    found.append(criterion_id)
+        key_points = [{"criterion_id": cid, "text": cid} for cid in found]
+        exchanges = []
+        previous_action = ""
+        for index, turn in enumerate(question_turns):
+            exchanges.append({
+                "turn_number": turn["turn_number"],
+                "actual_question": turn["prompt"],
+                "phrasing": _phrasing(essential, turn["prompt"], index, previous_action),
+                "response": turn["response"],
+                "decision": turn["action"],
+                "asked_at": turn["asked_at"],
+                "recording_id": turn["recording_id"],
+                "recording_duration": turn["recording_duration"],
+                "interaction_id": turn["interaction_id"],
+                "question_video": turn["has_question_video"],
+            })
+            previous_action = turn["action"]
+        questions.append({
+            "number": len(questions) + 1,
+            "question_id": question_id,
+            "essential_question": essential,
+            "reached": True,
+            "exchanges": exchanges,
+            "attainment": _question_attainment(key_points, question_turns),
+        })
 
     total_points = sum(q["attainment"]["total"] for q in questions)
     met_points = sum(q["attainment"]["met"] for q in questions)

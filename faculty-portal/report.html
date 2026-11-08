@@ -34,6 +34,9 @@ th{position:sticky;top:0;background:var(--panel-2);text-align:left;font-size:12p
 td{vertical-align:top;padding:14px;border-bottom:1px solid var(--line);font-size:14px}
 tr.group-start td{border-top:2px solid #553570}
 td.essential{width:22%;background:rgba(32,24,43,.55)}
+th.seq-h,td.seq{width:44px;text-align:center;padding-left:8px;padding-right:8px}
+td.seq{font-weight:850;color:var(--gold);font-variant-numeric:tabular-nums}
+.qvideo{display:block;width:100%;max-width:360px;margin-top:8px;border-radius:10px;background:#000}
 td.attain{width:30%;background:rgba(32,24,43,.55)}
 .qnum{color:var(--muted);font-size:12px;font-weight:800;display:block;margin-bottom:4px}
 .tag{display:inline-block;margin-top:6px;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:800;border:1px solid}
@@ -54,6 +57,11 @@ summary{cursor:pointer}
 .flag{margin-top:10px;padding:8px 10px;border-radius:10px;font-size:12px;border:1px solid #5f5232;background:#2a2415;color:#dfc984}
 .flag.red{border-color:#6b2d3d;background:#2c151d;color:#ffb9c6}
 .empty{color:var(--muted);font-style:italic}
+.clip{display:block;width:100%;text-align:left;background:none;border:1px solid transparent;border-radius:10px;padding:6px 8px;margin:-6px -8px;color:inherit;font:inherit;cursor:pointer;white-space:pre-wrap}
+.clip:hover,.clip:focus-visible{border-color:#553570;background:#20182b;outline:none}
+.clip .play{display:flex;width:max-content;align-items:center;gap:6px;margin-top:6px;font-size:12px;font-weight:800;color:#c9a6e8}
+.clip-audio{display:block;width:100%;margin-top:8px}
+.no-audio{display:block;margin-top:6px;font-size:12px;color:var(--muted)}
 #status{padding:40px;text-align:center;color:var(--muted)}
 @media print{
   :root{color-scheme:light}
@@ -78,7 +86,7 @@ summary{cursor:pointer}
       <div class="sub" id="meta"></div>
     </div>
     <div class="actions">
-      <a class="btn" href="/">Back to portal</a>
+      <a class="btn" href="/" id="backLink">Back</a>
       <button class="btn" onclick="window.print()">Print</button>
     </div>
   </div>
@@ -88,7 +96,7 @@ summary{cursor:pointer}
     <p class="note">Attainment combines every turn for an essential question: a key point counts as met if the student met it in the original answer or in a follow-up. The AI grading supports your judgment; the grade is yours.</p>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Essential question</th><th>Actual question</th><th>Response</th><th>Attainment</th></tr></thead>
+        <thead><tr><th class="seq-h" title="Order the question was asked">#</th><th>Essential question</th><th>Actual question</th><th>Transcript text</th><th>Evaluation</th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
@@ -103,6 +111,50 @@ function phrasingTag(text) {
   const cls = text === "Asked as written" ? "same" : text === "Rephrased" ? "rephrased" : "follow";
   return `<span class="tag ${cls}">${esc(text)}</span>`;
 }
+
+function questionCell(e) {
+  const text = esc(e.actual_question);
+  if (!e.question_video || !e.interaction_id) return `${text}<span class="no-audio">No question video saved.</span>`;
+  return `<button type="button" class="clip" data-qvideo="${esc(e.interaction_id)}" aria-label="Watch the avatar ask this question">${text}<span class="play">&#9654; Watch question</span></button>`;
+}
+
+function transcriptCell(e) {
+  const text = e.response ? esc(e.response) : '<span class="empty">No speech detected.</span>';
+  if (!e.recording_id) return `${text}<span class="no-audio">No audio saved for this answer.</span>`;
+  const secs = Number(e.recording_duration) > 0 ? ` (${Number(e.recording_duration).toFixed(0)}s)` : "";
+  return `<button type="button" class="clip" data-clip="${esc(e.recording_id)}" aria-label="Play the student's answer">${text}<span class="play">&#9654; Play answer${secs}</span></button>`;
+}
+
+// Clicking a transcript plays that answer's audio clip (CLIP_RESP.AudioFilePath),
+// served only to the professor who owns the course.
+document.addEventListener("click", ev => {
+  const btn = ev.target.closest(".clip"); if (!btn) return;
+  const cell = btn.parentElement;
+  if (btn.dataset.qvideo) {
+    // INTERACTION.ActualQuestionVid: the avatar video the student actually saw.
+    let video = cell.querySelector("video");
+    if (!video) {
+      video = document.createElement("video");
+      video.className = "qvideo"; video.controls = true; video.preload = "none"; video.playsInline = true;
+      video.src = `/api/question-videos/${encodeURIComponent(btn.dataset.qvideo)}`;
+      video.onerror = () => { video.replaceWith(Object.assign(document.createElement("span"), { className: "no-audio", textContent: "The question video could not be found." })); };
+      btn.after(video);
+    }
+    document.querySelectorAll("audio,video").forEach(m => { if (m !== video) m.pause(); });
+    video.play().catch(() => {});
+    return;
+  }
+  let audio = cell.querySelector("audio");
+  if (!audio) {
+    audio = document.createElement("audio");
+    audio.className = "clip-audio"; audio.controls = true; audio.preload = "none";
+    audio.src = `/api/recordings/${encodeURIComponent(btn.dataset.clip)}`;
+    audio.onerror = () => { audio.replaceWith(Object.assign(document.createElement("span"), { className: "no-audio", textContent: "The audio file could not be found." })); };
+    cell.appendChild(audio);
+  }
+  document.querySelectorAll("audio,video").forEach(m => { if (m !== audio) m.pause(); });
+  audio.play().catch(() => {});
+});
 
 function attainmentCell(a) {
   const points = a.key_points.map(p => `
@@ -134,11 +186,12 @@ function render(r) {
     const essential = `<td class="essential" rowspan="${Math.max(q.exchanges.length, 1)}"><span class="qnum">Question ${q.number}</span>${esc(q.essential_question)}</td>`;
     const attain = `<td class="attain" rowspan="${Math.max(q.exchanges.length, 1)}">${attainmentCell(q.attainment)}</td>`;
     if (!q.exchanges.length)
-      return `<tr class="group-start">${essential}<td colspan="2" class="empty">Not reached in this session.</td>${attain}</tr>`;
+      return `<tr class="group-start"><td class="seq">—</td>${essential}<td colspan="2" class="empty">Not reached in this session.</td>${attain}</tr>`;
     return q.exchanges.map((e, i) => `<tr${i === 0 ? ' class="group-start"' : ""}>
+      <td class="seq">${esc(e.turn_number)}</td>
       ${i === 0 ? essential : ""}
-      <td>${esc(e.actual_question)}<br>${phrasingTag(e.phrasing)}</td>
-      <td class="response">${e.response ? esc(e.response) : '<span class="empty">No speech detected.</span>'}</td>
+      <td class="question">${questionCell(e)}${phrasingTag(e.phrasing)}</td>
+      <td class="response">${transcriptCell(e)}</td>
       ${i === 0 ? attain : ""}
     </tr>`).join("");
   }).join("");
@@ -147,6 +200,9 @@ function render(r) {
 }
 
 (async () => {
+  try { if (document.referrer && new URL(document.referrer).origin === location.origin) {
+    $("backLink").addEventListener("click", ev => { ev.preventDefault(); history.back(); });
+  } } catch (_) {}
   const id = decodeURIComponent(location.pathname.split("/").pop());
   try {
     const res = await fetch(`/api/reports/${encodeURIComponent(id)}`);

@@ -444,6 +444,37 @@ def analytics_runs(limit: int = 50, user: dict = Depends(require_faculty)):
     return {"runs": ANALYTICS.recent_runs(limit)}
 
 
+# ---- Analytics drill-down: courses -> exams -> sessions -> attainment report ----
+@app.get("/api/analytics/courses")
+def analytics_courses(user: dict = Depends(require_faculty)):
+    from rag.course_reports import courses_for_faculty
+
+    with db() as connection:
+        return {"courses": courses_for_faculty(connection, user["id"])}
+
+
+@app.get("/api/analytics/courses/{course_id}/exams")
+def analytics_course_exams(course_id: str, user: dict = Depends(require_faculty)):
+    from rag.course_reports import exams_for_course
+
+    with db() as connection:
+        result = exams_for_course(connection, user["id"], course_id)
+    if result is None:
+        raise HTTPException(404, "Course not found.")
+    return result
+
+
+@app.get("/api/analytics/exams/{exam_id}/sessions")
+def analytics_exam_sessions(exam_id: str, user: dict = Depends(require_faculty)):
+    from rag.course_reports import sessions_for_exam
+
+    with db() as connection:
+        result = sessions_for_exam(connection, user["id"], exam_id)
+    if result is None:
+        raise HTTPException(404, "Exam not found.")
+    return result
+
+
 @app.get("/api/transcripts")
 def assessment_transcripts(
     limit: int = 50, user: dict = Depends(require_faculty)
